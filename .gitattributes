@@ -1,0 +1,4 @@
+# Unix line endings everywhere: scripts run in WSL
+* text=auto eol=lf
+*.gds binary
+*.png binary
