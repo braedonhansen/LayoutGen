@@ -1,7 +1,12 @@
 """Transistor-level schematic SVGs for cell JSONs.
 
-    python -m cellgym.netlists.schematic --cells out/cells --out out/schematics
+    python -m cellgym.netlists.schematic --open            # all cells, gallery in a browser
+    python -m cellgym.netlists.schematic nand3 "P(C,S(A,B))" --open
     python -m cellgym.netlists.schematic --cells out/cells/<id>.json --out out/schematics
+
+Cells are generated into --cells first if it does not exist yet. Select cells by
+id (or id prefix), canonical PDN tree (S = series, P = parallel), or inv,
+nandN, norN.
 
 Placement comes from the device list itself: each network (PMOS between VDD
 and OUT, NMOS between OUT and VSS) is decomposed into series/parallel blocks
@@ -324,14 +329,38 @@ def cell_files(path: Path) -> list[Path]:
     return sorted(p for p in path.glob("*.json") if p.name != "index.json")
 
 
-def render_dir(cells: Path, out: Path) -> list[str]:
+def _alias(name: str) -> str | None:
+    """inv / nandN / norN -> canonical PDN tree."""
+    name = name.lower()
+    if name == "inv":
+        return "A"
+    for prefix, op in (("nand", "S"), ("nor", "P")):
+        n = name[len(prefix):]
+        if name.startswith(prefix) and n.isdigit() and 2 <= int(n) <= len(INPUT_NAMES):
+            return f"{op}({','.join(INPUT_NAMES[:int(n)])})"
+    return None
+
+
+def matches(cell: dict, select: list[str]) -> bool:
+    if not select:
+        return True
+    for s in select:
+        tree = _alias(s) or s.replace(" ", "")
+        if cell["id"].startswith(s) or cell["canonical_tree"] == tree:
+            return True
+    return False
+
+
+def render_dir(cells: Path, out: Path, select: list[str] = ()) -> list[str]:
     out.mkdir(parents=True, exist_ok=True)
     ids = []
     for p in cell_files(cells):
         cell = json.loads(p.read_text())
+        if not matches(cell, select):
+            continue
         (out / f"{cell['id']}.svg").write_text(render(cell), encoding="utf-8", newline="\n")
         ids.append(cell["id"])
-    if cells.is_dir():
+    if cells.is_dir() and len(ids) > 1:
         (out / "index.html").write_text(gallery(ids), encoding="utf-8", newline="\n")
     return ids
 
@@ -339,14 +368,28 @@ def render_dir(cells: Path, out: Path) -> list[str]:
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("select", nargs="*",
+                    help="cell ids/prefixes, canonical trees or inv/nandN/norN (default: all)")
     ap.add_argument("--cells", type=Path, default=Path("out/cells"),
-                    help="directory of cell JSONs, or one cell JSON")
+                    help="directory of cell JSONs, or one cell JSON (generated if missing)")
     ap.add_argument("--out", type=Path, default=Path("out/schematics"))
+    ap.add_argument("--open", action="store_true", help="open the result in a browser")
     a = ap.parse_args(argv)
     t0 = time.time()
-    ids = render_dir(a.cells, a.out)
-    extra = " + index.html" if a.cells.is_dir() else ""
-    print(f"{len(ids)} schematics{extra} -> {a.out}; {time.time() - t0:.1f}s")
+    if not a.cells.exists():
+        from .enumerate import Params
+        from .generate import generate
+        from .transistors import Sizing
+        print(f"generating cells into {a.cells} ...")
+        generate(a.cells, Params(), Sizing())
+    ids = render_dir(a.cells, a.out, a.select)
+    if not ids:
+        raise SystemExit(f"no cells match {a.select}")
+    page = a.out / ("index.html" if len(ids) > 1 and a.cells.is_dir() else f"{ids[0]}.svg")
+    print(f"{len(ids)} schematics -> {page}; {time.time() - t0:.1f}s")
+    if a.open:
+        import webbrowser
+        webbrowser.open(page.resolve().as_uri())
 
 
 if __name__ == "__main__":

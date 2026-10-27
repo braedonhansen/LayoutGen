@@ -21,8 +21,13 @@ switch-level self-checked (`selfcheck.py`) before it is written.
 
 ## Schematics
 
-    python -m cellgym.netlists.schematic --cells out/cells --out out/schematics
+    python -m cellgym.netlists.schematic --open                  # every cell, gallery in a browser
+    python -m cellgym.netlists.schematic nand3 "P(C,S(A,B))" --open
     python -m cellgym.netlists.schematic --cells out/cells/<id>.json --out out/schematics
+
+Cells are generated into `--cells` (default `out/cells`) if missing. Select by
+id or id prefix, canonical PDN tree (`S` = series, `P` = parallel), or
+`inv`/`nandN`/`norN`.
 
 Writes `<id>.svg` per cell (stdlib only, deterministic) and, for a directory,
 `index.html` (grid gallery; open it as a local file). VDD rail on top, PMOS

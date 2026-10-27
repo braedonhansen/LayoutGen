@@ -6,7 +6,7 @@ import pytest
 
 from cellgym.netlists.enumerate import Network, Params, parse_tree
 from cellgym.netlists.generate import generate
-from cellgym.netlists.schematic import decompose, expression, render, render_dir
+from cellgym.netlists.schematic import decompose, expression, main, render, render_dir
 from cellgym.netlists.transistors import Sizing, build_cell
 from cellgym.netlists.writers import cell_json
 
@@ -95,3 +95,13 @@ def test_header_and_parse():
     texts = [t.text for t in root.iter(f"{SVG}text")]
     assert cell["id"] in texts and "OUT" in texts and "VDD" in texts and "VSS" in texts
     assert root.get("data-cell") == cell["id"]
+
+
+def test_select_by_alias_tree_and_id(cells_dir, tmp_path):
+    ids = render_dir(cells_dir, tmp_path / "a", ["nand2", "nor3", "P(C, S(A,B))"])
+    trees = {json.loads((cells_dir / f"{i}.json").read_text())["canonical_tree"] for i in ids}
+    assert trees == {"S(A,B)", "P(A,B,C)", "P(C,S(A,B))"}
+    assert (tmp_path / "a" / "index.html").exists()
+    assert render_dir(cells_dir, tmp_path / "b", [ids[0][:12]])
+    with pytest.raises(SystemExit):
+        main(["no-such-cell", "--cells", str(cells_dir), "--out", str(tmp_path / "c")])
