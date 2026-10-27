@@ -317,30 +317,33 @@ tooling.
 Each error names the line and the rule. These messages are what the agent
 reads during repair, so they stay short and stable.
 
-## Example: AOI21 (the plan doc's sketch, new syntax)
+## Example: AOI21
 
-OUT = NOT(A·B + C). Gate order B, A, C is an Euler path in both rows, so
-there is no break, and n1 is internal shared diffusion with no contact. Each
-input drives one gate column, so no input is routed and every input pin
+OUT = NOT(A·B + C), matching the M1 netlist `cg_3i3d_29e68bd3`
+(`P(C,S(A,B))`, C on the VDD side of the pull-up). The plan doc's sketch had
+the pull-up the other way round; same function, different devices, so the
+validator rejects it against this netlist. Gate order C, A, B is an Euler path
+in both rows: no break, and n1 is internal shared diffusion with no contact.
+Each input drives one gate column, so no input is routed and every input pin
 carries its gate's contact track.
 
 ```
 cell aoi21
 in A B C
 out OUT
-col 0 sd n=VSS*  p=p1*
-col 1 g  n=B     p=B
-col 2 sd n=n1    p=VDD*
+col 0 sd n=VSS*  p=VDD*
+col 1 g  n=C     p=C
+col 2 sd n=OUT*  p=p1*
 col 3 g  n=A     p=A
-col 4 sd n=OUT*  p=p1*
-col 5 g  n=C     p=C
-col 6 sd n=VSS*  p=OUT*
-route p1  met1 p0 pmos:0 pmos:4
-route OUT li1  c1 nmos:4 pmos:6
-pin A gate:3 c2
-pin B gate:1 c0
-pin C gate:5 c0
-pin OUT nmos:4
+col 4 sd n=n1    p=OUT*
+col 5 g  n=B     p=B
+col 6 sd n=VSS*  p=p1*
+route OUT li1  c1 nmos:2 pmos:4
+route p1  met1 p0 pmos:2 pmos:6
+pin A gate:3 c0
+pin B gate:5 c2
+pin C gate:1 c2
+pin OUT nmos:2
 ```
 
 ## Example: half adder (M2 exit)
@@ -361,7 +364,7 @@ The PMOS row needs one break between the C and S stages, because NOR(C)'s
 pull-up always ends on C or VDD and AOI21's always ends on p1 or S. Columns 8
 and 9 carry that break; in the NMOS row they are one VSS island.
 
-The file is `examples/half_adder.plan`.
+Files: `examples/half_adder.plan`, netlist `examples/half_adder.json` (hand-written, M1 format).
 
 ```
 cell half_adder
@@ -395,8 +398,7 @@ pin S nmos:11
 pin C nmos:6
 ```
 
-Checked by a throwaway script under the routing model above (a stand-in for
-the validator, not the validator itself):
+Validated by `cellgym/dsl/validate.py` (tests in `tests/dsl`):
 
 - Function: a switch-level simulation of the 14 transistors read off the
   columns gives S = A ⊕ B and C = A·B (AOI21: NOT(A·B + C)).

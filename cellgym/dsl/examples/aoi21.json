@@ -1,0 +1,104 @@
+{
+  "id": "cg_3i3d_29e68bd3",
+  "inputs": [
+    "A",
+    "B",
+    "C"
+  ],
+  "ports": [
+    "A",
+    "B",
+    "C",
+    "OUT",
+    "VDD",
+    "VSS"
+  ],
+  "function": "07",
+  "function_note": "hex truth table of OUT; bit r = row r, input A = LSB of r",
+  "canonical_tree": "P(C,S(A,B))",
+  "pdn_depth": 2,
+  "pun_depth": 2,
+  "read_once": true,
+  "n_devices": 6,
+  "max_w_n": 0.84,
+  "max_w_p": 1.26,
+  "fits": true,
+  "devices": [
+    {
+      "name": "MN1",
+      "type": "nmos",
+      "model": "sky130_fd_pr__nfet_01v8",
+      "gate": "C",
+      "drain": "OUT",
+      "source": "VSS",
+      "bulk": "VSS",
+      "w": 0.42,
+      "l": 0.15
+    },
+    {
+      "name": "MN2",
+      "type": "nmos",
+      "model": "sky130_fd_pr__nfet_01v8",
+      "gate": "A",
+      "drain": "OUT",
+      "source": "n1",
+      "bulk": "VSS",
+      "w": 0.84,
+      "l": 0.15
+    },
+    {
+      "name": "MN3",
+      "type": "nmos",
+      "model": "sky130_fd_pr__nfet_01v8",
+      "gate": "B",
+      "drain": "n1",
+      "source": "VSS",
+      "bulk": "VSS",
+      "w": 0.84,
+      "l": 0.15
+    },
+    {
+      "name": "MP1",
+      "type": "pmos",
+      "model": "sky130_fd_pr__pfet_01v8_hvt",
+      "gate": "C",
+      "drain": "p1",
+      "source": "VDD",
+      "bulk": "VDD",
+      "w": 1.26,
+      "l": 0.15
+    },
+    {
+      "name": "MP2",
+      "type": "pmos",
+      "model": "sky130_fd_pr__pfet_01v8_hvt",
+      "gate": "A",
+      "drain": "OUT",
+      "source": "p1",
+      "bulk": "VDD",
+      "w": 1.26,
+      "l": 0.15
+    },
+    {
+      "name": "MP3",
+      "type": "pmos",
+      "model": "sky130_fd_pr__pfet_01v8_hvt",
+      "gate": "B",
+      "drain": "OUT",
+      "source": "p1",
+      "bulk": "VDD",
+      "w": 1.26,
+      "l": 0.15
+    }
+  ],
+  "nets": [
+    "A",
+    "B",
+    "C",
+    "OUT",
+    "VDD",
+    "VSS",
+    "n1",
+    "p1"
+  ]
+}
