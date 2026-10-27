@@ -47,9 +47,14 @@ def resolve(plan: str, netlist: str | None) -> tuple[Path, Path]:
 
 def verify(plan_path: Path, netlist_path: Path, out: Path, pdk_root: Path, pdk: str = "sky130A") -> Result:
     """Render, write GDS + reference SPICE into `out`, run DRC and LVS."""
+    cell = render(parse(plan_path.read_text()), json.loads(netlist_path.read_text()))
+    return verify_rendered(cell, out, pdk_root, pdk)
+
+
+def verify_rendered(cell: Rendered, out: Path, pdk_root: Path, pdk: str = "sky130A") -> Result:
+    """DRC + LVS of an already rendered (possibly modified) cell."""
     os.environ["PDK_ROOT"] = str(pdk_root)   # magicrc reads this
     tech = pdk_root / pdk / "libs.tech"
-    cell = render(parse(plan_path.read_text()), json.loads(netlist_path.read_text()))
     out.mkdir(parents=True, exist_ok=True)
     gds = out / f"{cell.name}.gds"
     ref = out / f"{cell.name}.ref.spice"

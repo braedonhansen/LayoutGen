@@ -17,9 +17,9 @@ from pathlib import Path
 LIB = "sky130_fd_sc_hd"
 
 
-def run(cmd, log, stdin=None, env=None):
+def run(cmd, log, stdin=None, env=None, cwd=None):
     """Run a tool, write combined output to `log`, return the text."""
-    p = subprocess.run(cmd, input=stdin, capture_output=True, text=True, env=env)
+    p = subprocess.run(cmd, input=stdin, capture_output=True, text=True, env=env, cwd=cwd)
     text = p.stdout + p.stderr
     Path(log).write_text(text)
     if p.returncode != 0:
@@ -57,7 +57,7 @@ ext2spice -o {sp}
 quit -noprompt
 """
     run(["magic", "-dnull", "-noconsole", "-rcfile", str(tech / "magic/sky130A.magicrc")],
-        out / f"{cell}.magic.log", stdin=tcl, env=os.environ)
+        out / f"{cell}.magic.log", stdin=tcl, env=os.environ, cwd=out)  # .ext files land in cwd
     return sp
 
 
@@ -67,7 +67,7 @@ def lvs(cell, ext_sp, ref, tech, out):
          str(tech / "netgen/sky130A_setup.tcl"), str(rpt)], out / f"{cell}.netgen.log")
     text = rpt.read_text() if rpt.exists() else ""
     ok = bool(re.search(r"Circuits match uniquely", text)) and \
-        not re.search(r"Pin names? (don't|do not) match|Netlists do not match", text)
+        not re.search(r"Pin names? (don't|do not) match|Netlists do not match|[Pp]roperty errors", text)
     final = [l for l in text.splitlines() if "match" in l.lower()][-2:]
     return ok, final, rpt
 
