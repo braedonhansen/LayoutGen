@@ -1,0 +1,16 @@
+cell aoi21
+in A B C
+out OUT
+col 0 sd n=VSS*  p=VDD*
+col 1 g  n=C     p=C
+col 2 sd n=OUT*  p=p1*
+col 3 g  n=A     p=A
+col 4 sd n=n1    p=OUT*
+col 5 g  n=B     p=B
+col 6 sd n=VSS*  p=p1*
+route OUT li1  c1 nmos:2 pmos:4
+route p1  met1 p0 pmos:2 pmos:6
+pin A gate:3 c0
+pin B gate:5 c2
+pin C gate:1 c2
+pin OUT nmos:2
