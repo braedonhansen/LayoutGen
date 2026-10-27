@@ -14,7 +14,7 @@ MET1_OFFSET = 0.17
 MET1_HALF_WIDTH = 0.07      # m1.1 0.14
 MET1_SPACE = 0.14           # m1.2
 RAIL_HALF_WIDTH = 0.24      # hd rails, met1 0.48 wide
-ROW_MARGIN = 0.135          # half of difftap.3 (0.27) to the abutting row
+ROW_MARGIN = 0.235          # poly.8 endcap 0.13 + half of poly.2 (0.21) to the abutting row
 NDIFF_TO_TRACK = 0.275      # licon.14 0.19 + half licon 0.085
 TRACK_TO_PDIFF = 0.32       # licon.9 + psdm.5a 0.235 + half licon 0.085
 CHANNEL_TRACKS = 3
@@ -40,6 +40,12 @@ class Layout:
             return False
         limit = {"c": CHANNEL_TRACKS, "n": self.n_tracks, "p": self.p_tracks}.get(region)
         return limit is not None and int(idx) < limit
+
+    def track_k(self, name: str) -> int:
+        """Met1 grid index of a track (row tracks count outward from the channel)."""
+        i = int(name[1:])
+        return {"c": self.channel_k[0] + i, "n": self.channel_k[0] - 1 - i,
+                "p": self.channel_k[-1] + 1 + i}[name[0]]
 
 
 def layout(w_n: float, w_p: float) -> Layout:

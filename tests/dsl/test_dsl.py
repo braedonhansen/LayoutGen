@@ -26,7 +26,7 @@ def mutate(text, old, new):
 # -- template ------------------------------------------------------------------
 
 @pytest.mark.parametrize("stack, height, n_tracks, p_tracks", [
-    (1, 2.72, 1, 2), (2, 4.08, 3, 4), (3, 5.10, 4, 6), (4, 6.12, 5, 8), (5, 7.14, 6, 10),
+    (1, 3.06, 2, 2), (2, 4.08, 3, 4), (3, 5.10, 4, 6), (4, 6.12, 5, 8), (5, 7.48, 7, 10),
 ])
 def test_layout_by_stack(stack, height, n_tracks, p_tracks):
     lay = layout(0.42 * stack, 0.63 * stack)
@@ -125,6 +125,15 @@ def test_unrouted_gate_needs_pin_track():
     assert rep.codes() == {"gate-untracked"}
 
 
+def test_met1_pads_adjacent_tracks_one_column():
+    # OUT on met1 c2 puts a pad at column 2 right below p1's pad on p0
+    text, netlist = load("aoi21")
+    rep = check(mutate(text, "route OUT li1  c1", "route OUT met1 c2"), netlist)
+    assert rep.codes() == {"met1-pad"}, str(rep)
+    rep = check(mutate(text, "route OUT li1  c1", "route OUT met1 c1"), netlist)
+    assert rep.ok, str(rep)
+
+
 def test_issue_points_at_line():
     text, netlist = load("half_adder")
     rep = check(mutate(text, "route C  li1  c2", "route C  li1  n0"), netlist)
@@ -151,5 +160,7 @@ def test_split_gate_column():
     assert check(ok, netlist).ok, str(check(ok, netlist))
     flipped = base + "pin A gate:1n c2\npin B gate:1p c0\n"
     assert check(flipped, netlist).codes() == {"split-order"}
+    adjacent = base + "pin A gate:1n c0\npin B gate:1p c1\n"
+    assert check(adjacent, netlist).codes() == {"split-order"}
     no_side = base + "pin A gate:1 c0\npin B gate:1p c2\n"
     assert "gate-side" in check(no_side, netlist).codes()

@@ -65,26 +65,30 @@ Building a cell up from VSS (y in µm), for widest widths W_n and W_p:
 | Piece | y | Why |
 |---|---|---|
 | VSS rail | −0.24 … 0.24 (met1), li strap −0.085 … 0.085 | hd convention |
-| NMOS diffusion | from ≥ 0.135, height W_n | half the 0.27 diff spacing to the abutting row |
+| NMOS diffusion | from ≥ 0.235, height W_n | poly endcap 0.13 (poly.8) + half the 0.21 poly spacing to the abutting row |
 | Channel tracks c0, c1, c2 | next 3 met1-grid positions ≥ 0.275 above ndiff | licon-to-ndiff 0.19 + 0.085 |
 | PMOS diffusion | from c2 + 0.32, height W_p | licon-to-pdiff 0.235 + 0.085 |
 | N-well bottom edge | between ndiff top + 0.34 and pdiff bottom − 0.18 | diff/tap.9, diff/tap.8 |
-| VDD rail | at the first multiple of 0.34 ≥ pdiff top + 0.135 | met1 grid |
+| VDD rail | at the first multiple of 0.34 ≥ pdiff top + 0.235 | met1 grid, same margin as at VSS |
 
 Heights therefore come in 0.34 steps. With today's sizing (unit × series
 depth), uniform stack depth d gives:
 
 | Stack | NMOS / PMOS | Height |
 |---|---|---|
-| 1 | 0.42 / 0.63 | 2.72 (same as hd) |
+| 1 | 0.42 / 0.63 | 3.06 |
 | 2 | 0.84 / 1.26 | 4.08 |
 | 3 | 1.26 / 1.89 | 5.10 |
 | 4 | 1.68 / 2.52 | 6.12 |
-| 5 | 2.10 / 3.15 | 7.14 |
+| 5 | 2.10 / 3.15 | 7.48 |
 
-Each stack level adds 1.02 µm. Rows are sized separately, so a NAND3 (NMOS
+A stack level adds 1.02 µm from stack 1 to 4 and 1.36 µm from 4 to 5 (the
+0.34 grid rounding does not land the same way at every level). Stack 1 is one
+pitch taller than hd's 2.72: the rail-side margin is set by the poly endcap and
+poly spacing to the abutting row (0.235), not the diff spacing (0.135); hd
+fits 2.72 with a narrower channel. Rows are sized separately, so a NAND3 (NMOS
 stack 3, PMOS stack 1) is shorter than a uniform stack-3 cell. The M1 core
-set spreads from 2.72 to 5.10 µm (262 of 323 cells at 5.10).
+set spreads from 3.06 to 5.10 µm (262 of 323 cells at 5.10).
 
 Met1 tracks are named by region and **numbered from the channel outward**:
 `n0` and `p0` are the row tracks next to the channel; `c0…c2` are the channel
@@ -127,8 +131,8 @@ marked the same way.
   removes a field that only repeated the routes, and every track choice happens
   in the routing phase of a step-wise episode.
 - A split column (`n=A p=B`) cuts the poly in the channel. Its contacts are the
-  endpoints `gate:<col>n` and `gate:<col>p`, and the NMOS one must be on a lower
-  track than the PMOS one.
+  endpoints `gate:<col>n` and `gate:<col>p`: NMOS on c0, PMOS on c2. On
+  adjacent tracks the two poly pads would be 0.07 apart (poly.2 needs 0.21).
 - A contact is an li obstacle on its track. A met1 route on the same track
   reaches it through an mcon; li reaches it directly.
 - Adjacent gate contacts on the same track (0.46 apart) break the poly spacing
@@ -313,6 +317,9 @@ tooling.
 5. Overlaps: per layer and track, no two nets overlap, counting gate contacts
    and stubs.
 6. Rails: section 2.
+7. Same-column met1 pads: two met1 pads of different nets in one sd column may
+   not sit on adjacent tracks (0.11 apart, m1.2 needs 0.14); compaction moves
+   whole columns, so it cannot separate them.
 
 Each error names the line and the rule. These messages are what the agent
 reads during repair, so they stay short and stable.
@@ -411,4 +418,7 @@ Validated by `cellgym/dsl/validate.py` (tests in `tests/dsl`):
     on c0.
   - Same-track contacts: x's contacts on c0, A's on c2, B's on c1.
 
-Not rendered or run through DRC/LVS yet.
+Rendered by `cellgym/render` (`python -m cellgym.groundtruth.verify <plan>`):
+KLayout DRC 0 violations and Netgen LVS "Circuits match uniquely" on both
+examples. AOI21: 2.22 µm (5 sites) × 4.08 µm; half adder: 5.52 µm (12 sites)
+× 4.08 µm.

@@ -299,9 +299,27 @@ class _Checker:
                          f"gate:{key[0]}{key[1]} ({net}) has no track: route it or give its pin a track")
         for (col, side), t in tracks.items():
             if side == "n" and (col, "p") in tracks:
-                if CHANNEL_NAMES.index(t) >= CHANNEL_NAMES.index(tracks[(col, "p")]):
+                # poly pads on adjacent tracks are 0.07 apart (poly.2 needs 0.21)
+                if CHANNEL_NAMES.index(tracks[(col, "p")]) - CHANNEL_NAMES.index(t) < 2:
                     self.err(self.cols[col].line, "split-order",
-                             f"column {col}: NMOS gate contact must sit below the PMOS one")
+                             f"column {col}: split contacts must be NMOS on c0, PMOS on c2")
+
+    def check_met1_pads(self) -> None:
+        """met1 mcon pads (0.23 tall) on adjacent tracks in one sd column are 0.11
+        apart (m1.2 needs 0.14); compaction cannot separate them."""
+        lay = self.report.layout
+        pads = defaultdict(list)    # col -> (track k, net, line)
+        for r in self.plan.routes:
+            if r.layer != "met1" or not lay.has_track(r.track):
+                continue
+            for ep in r.endpoints:
+                if ep.kind != "gate":
+                    pads[ep.col].append((lay.track_k(r.track), r.net, r.line))
+        for col, ps in pads.items():
+            for a, b in itertools.combinations(ps, 2):
+                if a[1] != b[1] and abs(a[0] - b[0]) == 1:
+                    self.err(max(a[2], b[2]), "met1-pad",
+                             f"column {col}: met1 pads of {a[1]} and {b[1]} on adjacent tracks")
 
     def check_connectivity(self) -> None:
         groups: dict[str, set] = defaultdict(set)
@@ -383,6 +401,7 @@ class _Checker:
         self.check_routes()
         self.check_pins()
         self.check_gate_tracks()
+        self.check_met1_pads()
         self.check_connectivity()
         self.check_overlaps()
         self.report.issues.sort(key=lambda i: (i.line, i.code))
