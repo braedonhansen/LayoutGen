@@ -1,0 +1,29 @@
+cell half_adder
+in A B
+out S C
+col 0  sd n=VSS*  p=x*    st=x
+col 1  g  n=A     p=A     st=x
+col 2  sd n=x*    p=px    st=x
+col 3  g  n=B     p=B     st=x
+col 4  sd n=VSS*  p=VDD*
+col 5  g  n=x     p=x     st=C
+col 6  sd n=C*    p=p2    st=C
+col 7  g  n=S     p=S     st=C
+col 8  sd n=VSS*  p=C*    st=C
+col 9  sd n=VSS   p=S*    st=S
+col 10 g  n=x     p=x     st=S
+col 11 sd n=S*    p=p1*   st=S
+col 12 g  n=A     p=A     st=S
+col 13 sd n=n1    p=VDD*  st=S
+col 14 g  n=B     p=B     st=S
+col 15 sd n=VSS*  p=p1*   st=S
+route x  met1 c0 nmos:2 pmos:0 gate:5 gate:10
+route S  li1  c1 nmos:11 pmos:9 gate:7
+route C  li1  c2 nmos:6 pmos:8
+route p1 met1 p0 pmos:11 pmos:15
+route A  met1 c2 gate:1 gate:12
+route B  met1 c1 gate:3 gate:14
+pin A gate:1
+pin B gate:3
+pin S nmos:11
+pin C nmos:6
