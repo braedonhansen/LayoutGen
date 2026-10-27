@@ -1,0 +1,19 @@
+# Run outputs
+out/
+
+# Magic extraction and layout outputs
+*.ext
+*.sim
+*.nodes
+*.mag.bak
+
+# KLayout DRC reports
+*.lyrdb
+
+# Netgen LVS reports
+*.lvs.txt
+comp.out
+
+# Python
+__pycache__/
+*.pyc
