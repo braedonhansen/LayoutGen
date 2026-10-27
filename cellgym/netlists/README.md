@@ -19,4 +19,18 @@ switch-level self-checked (`selfcheck.py`) before it is written.
 - Function hex: truth table of OUT, bit r = row r, input A = LSB of r.
 - Ids: `cg_<inputs>i<devices>d_<sha1(canonical tree)[:8]>`.
 
+## Schematics
+
+    python -m cellgym.netlists.schematic --cells out/cells --out out/schematics
+    python -m cellgym.netlists.schematic --cells out/cells/<id>.json --out out/schematics
+
+Writes `<id>.svg` per cell (stdlib only, deterministic) and, for a directory,
+`index.html` (grid gallery; open it as a local file). VDD rail on top, PMOS
+pull-up, OUT, NMOS pull-down, VSS rail at the bottom; series devices stack
+vertically, parallel branches sit side by side. Placement is decomposed from
+the JSON device terminals (not the tree), so the drawing has exactly the
+netlist's devices and nets; non-series-parallel networks raise. Gates carry
+their input name, devices their width (um) and name, internal nets a dot and
+label. Each symbol is `<g class="fet nmos|pmos" data-device=.. data-type=..>`.
+
 Tests: `python -m pytest tests` (the netgen self-LVS test needs the WSL cellgym env).
