@@ -1,0 +1,7 @@
+* Read by ngspice at startup when run from this directory.
+* hsa = HSPICE-compatible parsing (needed by the SKY130 model files);
+* skywaterpdk skips some model checks for faster loading.
+set ngbehavior=hsa
+set ng_nomodcheck
+set skywaterpdk
+set num_threads=1
