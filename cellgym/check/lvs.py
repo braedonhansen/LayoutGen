@@ -3,8 +3,9 @@
 Extraction (own code path, geometry only):
 - gate = poly AND diff (one device per gate component); s/d = diff NOT poly,
   one terminal per s/d component touching the gate on its two current sides.
-- type from implant (nsdm -> nmos, psdm -> pmos); pmos model is the hvt one
-  when the gate is inside hvtp. W = gate extent along the poly, L = across.
+- type from implant as Magic reads it (nsdm, no psdm -> nmos; no nsdm -> pmos);
+  pmos model is the hvt one when the gate is inside hvtp. W = mean s/d edge
+  length truncated to Magic's 5 nm grid, L = gate extent across the poly.
 - conductors: s/d, poly, li, met1 components; licon joins li to s/d or poly,
   mcon joins li to met1. Nets are named by text labels on li (67/5) and met1
   (68/5) at the label point.
@@ -13,7 +14,10 @@ Extraction (own code path, geometry only):
 
 Compare: ports must be labelled once each with no two on one net; then an
 exact device-graph match (named nets fixed, internal nets renamed, s/d
-swappable) with W and L within 1 nm.
+swappable) with W and L within Netgen's property tolerance: sky130A_setup.tcl
+sets `tolerance {l 0.01} {w 0.01}`, and Netgen accepts a pair when
+2|a - b| / (a + b) <= 0.01 (probed against netgen 1.5.272: a +1.005% ratio
+passes, +1.010% and -1.000% fail).
 """
 
 from __future__ import annotations
@@ -24,7 +28,13 @@ from collections import Counter, defaultdict
 from .drc import is_rect
 from .geometry import Region
 
-TOL = 1  # nm
+MAGIC_GRID = 5    # nm: Magic's internal grid for the sky130A tech (extracted W is truncated to it)
+TOL_REL = 0.01   # Netgen W/L property tolerance (symmetric relative difference)
+
+
+def within_tol(a: float, b: float) -> bool:
+    """Netgen's property match for W/L: 2|a - b| / (a + b) <= TOL_REL."""
+    return a == b or 2 * abs(a - b) <= TOL_REL * (a + b) + 1e-9
 NMOS_MODEL = "sky130_fd_pr__nfet_01v8"
 PMOS_MODELS = {True: "sky130_fd_pr__pfet_01v8_hvt", False: "sky130_fd_pr__pfet_01v8"}
 SUPPLY = ("VDD", "VSS", "VPB", "VNB")
@@ -102,6 +112,9 @@ def extract(g, labels) -> tuple[list[dict], dict, list[str]]:
     errors: list[str] = []
     uf = _UF()
     idx = {k: _Index(k, g[k]) for k in ("sd", "poly", "li", "met1", "nwell")}
+    sd_rects = defaultdict(list)
+    for r, cid in idx["sd"].items:
+        sd_rects[cid].append(r)
     for k in ("sd", "poly", "li", "met1"):
         for _, cid in idx[k].items:
             uf.find(cid)
@@ -166,14 +179,18 @@ def extract(g, labels) -> tuple[list[dict], dict, list[str]]:
             lens = idx["sd"].overlap_len(s)
             terms += sorted(lens)
             shared += sum(lens.values())
-        if terms:   # Magic: W = mean length of the gate edges shared with s/d
-            w = shared / len(sides)
+        if terms:   # Magic: W = mean length of the gate edges shared with s/d,
+            # truncated to its 5 nm internal grid (probed: edges 1235 + 1260 -> W 1.245)
+            w = (shared // MAGIC_GRID // len(sides)) * MAGIC_GRID
         gate_poly = idx["poly"].hits(bb)
-        n_in, p_in = nsdm.covers(bb), psdm.covers(bb)
-        if n_in == p_in:
-            errors.append(f"device at {bb}: gate not under exactly one of nsdm/psdm")
+        # Magic cifinput: nfet = diff & poly & nsdm & !psdm; pfet = diff & poly
+        # & !nsdm (psdm not required: a missing psdm is a DRC matter, psd.5a /
+        # diff.implant). Any other implant mix splits or loses the device.
+        n_any, p_any = nsdm.overlaps(bb), psdm.overlaps(bb)
+        if n_any and (p_any or not nsdm.covers(bb)):
+            errors.append(f"device at {bb}: gate partly under nsdm or under both nsdm and psdm")
             continue
-        typ = "nmos" if n_in else "pmos"
+        typ = "nmos" if n_any else "pmos"
         wells = idx["nwell"].hits(bb)
         if typ == "pmos":
             if not nwell.covers(bb):
@@ -190,6 +207,13 @@ def extract(g, labels) -> tuple[list[dict], dict, list[str]]:
                 continue
             bulk = ("sub",)
             model = NMOS_MODEL
+        # Magic: p-diffusion s/d needs psdm (pdiffarea), n-diffusion s/d nsdm;
+        # an s/d component with none of its implant is no terminal at all
+        imp = nsdm if typ == "nmos" else psdm
+        bare = [t for t in set(terms) if not any(imp.overlaps(r) for r in sd_rects[t])]
+        if bare:
+            errors.append(f"device at {bb}: {len(bare)} s/d terminal(s) without {'nsdm' if typ == 'nmos' else 'psdm'}")
+            continue
         if len(set(terms)) != 2:
             errors.append(f"device at {bb}: {len(set(terms))} s/d terminals (need 2)")
             continue
@@ -244,13 +268,13 @@ def compare(devices, net_names, netlist) -> list[str]:
         if n in port_set and len(nets) == 1 and len(net_names[nets[0]] & port_set) == 1:
             fixed[nets[0]] = n
 
-    # -- W/L within TOL nm of a reference value count as that value
+    # -- W/L within Netgen's tolerance of a reference value count as that value
     rw = {(d["type"], d["w"]) for d in ref}
     rl = {(d["type"], d["l"]) for d in ref}
     for d in devices:
         for key, vals in (("w", rw), ("l", rl)):
-            near = [v for t, v in vals if t == d["type"] and abs(v - d[key]) <= TOL]
-            d[key] = near[0] if near else d[key]
+            near = sorted((abs(v - d[key]), v) for t, v in vals if t == d["type"] and within_tol(v, d[key]))
+            d[key] = near[0][1] if near else d[key]
     # -- device multiset
     ce = Counter(_sig(d) for d in devices)
     cr = Counter(_sig(d) for d in ref)

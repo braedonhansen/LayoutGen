@@ -341,8 +341,13 @@ def run_drc(g: Geometry) -> list[Violation]:
     lic_all = [bb for _, _, bb, _ in g.licons()]
     adjacent_less(g["li"], lic_all, R("li.5"), "li.5", "li", v)
     # Magic builds its contact types from licon AND li; a licon partly off li
-    # becomes an undersized contact ("contact width < 0.17um (licon.1)")
-    not_empty(g["licon"] - g["li"], "licon.1_li", "licon", v)
+    # becomes an undersized contact ("contact width < 0.17um (licon.1)"). A
+    # licon entirely off li is no contact at all for Magic (DRC-clean; the
+    # missing connection is an LVS matter).
+    li = g["li"]
+    for _, comp, bb, _ in g.licons():
+        if any(li.overlaps(r) for r in comp) and not all(li.covers(r) for r in comp):
+            v.append(Violation("licon.1_li", "licon", bb))
 
     # gates (poly.7 / poly.8 / poly.11) and poly.4
     for comp in g["gate"].components():

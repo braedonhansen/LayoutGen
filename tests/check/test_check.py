@@ -231,3 +231,96 @@ def test_mutate_deterministic(aoi21):
     m2, d2 = mutate(cell, 7)
     assert d1 == d2 and m1.shapes == m2.shapes and m1.labels == m2.labels
     assert any(mutate(cell, s)[1] != d1 for s in range(5))
+
+
+def test_netgen_w_tolerance():
+    from cellgym.check.lvs import within_tol
+    # netgen 1.5.272 with sky130A_setup.tcl (tolerance w 0.01): 2|a-b|/(a+b) <= 1%
+    assert within_tol(420, 424.2) and within_tol(420, 415.842)
+    assert not within_tol(420, 424.242) and not within_tol(420, 415.8)
+
+
+def test_lvs_w_within_netgen_tolerance(aoi21):
+    cell, nl = aoi21
+    nl2 = copy.deepcopy(nl)
+    nl2["devices"][0]["w"] = round(nl2["devices"][0]["w"] * 1.009, 4)    # < 1%: netgen matches
+    assert check(cell, nl2).lvs_ok
+    nl2["devices"][0]["w"] = round(nl["devices"][0]["w"] * 1.012, 4)     # > 1%: property error
+    res = check(cell, nl2)
+    assert not res.lvs_ok and any("wrong W" in e for e in res.lvs_errors), res.lvs_errors
+
+
+@pytest.mark.parametrize("op", __import__("cellgym.check.mutate", fromlist=["OPS"]).OPS)
+def test_mutate_ops(aoi21, op):
+    cell, nl = aoi21
+    m1, d1 = mutate(cell, 3, op)
+    m2, d2 = mutate(cell, 3, op)
+    assert d1 == d2 and m1.shapes == m2.shapes and m1.labels == m2.labels
+    assert (m1.shapes, m1.labels) != (cell.shapes, cell.labels), d1
+    assert all(v % 5 == 0 for s in m1.shapes for v in (s.x0, s.y0, s.x1, s.y1))
+
+
+def test_audit_classify():
+    from cellgym.check.audit import classify
+    base = dict(fast_rules=[], fast_lvs=True, fast_lvs_errors=[], gt_drc=[], gt_magic=[], gt_lvs=True)
+    assert classify(dict(base))["outcome"] == "agree"
+    # a Magic-only DRC error makes ground truth fail
+    assert classify(dict(base, gt_magic=["Poly overhang of diff < 0.25um (poly.7)"]))["outcome"] == "false pass"
+    r = classify(dict(base, fast_rules=["poly.7"], gt_magic=["x (poly.7)"]))
+    assert r["outcome"] == "agree" and r["gt_rules"] == ["poly.7"]
+    assert classify(dict(base, fast_rules=["poly.7"]))["outcome"] == "false fail"
+    assert classify(dict(base, gt_magic=None))["outcome"] == "false pass"   # no Magic result = not clean
+
+
+def test_licon_entirely_off_li_is_not_licon1_li():
+    # Magic makes no contact of a licon with no li over it: DRC-clean (LVS sees the open)
+    assert "licon.1_li" not in _drc_rules([R("li", 400, 0, 800, 400), R("licon", 0, 0, 170, 170)])
+
+
+def _with_implant_edge(cell, layer, dy_bottom=0, dy_top=0):
+    shapes = [replace(s, y0=s.y0 + dy_bottom, y1=s.y1 + dy_top) if s.layer == layer else s
+              for s in cell.shapes]
+    return replace(cell, shapes=shapes)
+
+
+def test_lvs_pmos_gate_under_nsdm(aoi21):
+    """nsdm raised into the pmos row: Magic loses the pfet (nfet needs !psdm,
+    pfet needs !nsdm), so LVS must fail, not just DRC."""
+    cell, nl = aoi21
+    sdm = min(s.y0 for s in cell.shapes if s.layer == "psdm")
+    pdiff_bot = min(s.y0 for s in cell.shapes if s.layer == "diff" and s.y0 > sdm)
+    res = check(_with_implant_edge(cell, "nsdm", dy_top=pdiff_bot - sdm + 70), nl)
+    assert not res.lvs_ok
+    assert any("nsdm" in e for e in res.lvs_errors), res.lvs_errors
+
+
+def test_lvs_pmos_without_psdm_is_pmos(aoi21):
+    """Magic reads diff & poly & !nsdm as pfet whatever psdm says: a partly
+    missing psdm is a DRC (strict) matter, not an LVS one."""
+    cell, nl = aoi21
+    res = check(_with_implant_edge(cell, "psdm", dy_bottom=200), nl)
+    assert res.lvs_ok, res.lvs_errors
+    assert {"psd.5a", "diff.implant"} & {v.rule for v in res.drc_violations}
+
+
+def test_lvs_w_truncated_like_magic(aoi21):
+    """One s/d edge of a 1.26 gate shortened by 25 nm: Magic extracts
+    (1235 + 1260) / 2 truncated to 5 nm = 1.245 (1.2% off: property error),
+    not 1.2475 (0.99%, which Netgen would accept)."""
+    cell, nl = aoi21
+    wide = max((s for s in cell.shapes if s.layer == "diff" and s.y0 > 2000), key=lambda s: s.y1 - s.y0)
+    h = wide.y1 - wide.y0
+    if h != 1260:
+        pytest.skip(f"aoi21 pdiff height {h}")
+    sd = [s for s in cell.shapes if s.layer == "diff" and s.y0 == wide.y0 and s.y1 == wide.y1 and s.x1 - s.x0 > 150]
+    tgt = sd[0]
+    shapes = [replace(s, y1=s.y1 - 25) if s is tgt else s for s in cell.shapes]
+    res = check(replace(cell, shapes=shapes), nl)
+    assert any("got W=1.245" in e for e in res.lvs_errors), res.lvs_errors
+
+
+def test_lvs_pmos_sd_without_any_psdm(aoi21):
+    """psdm deleted: Magic's p s/d needs psdm, so the pfets lose their terminals."""
+    cell, nl = aoi21
+    res = check(replace(cell, shapes=[s for s in cell.shapes if s.layer != "psdm"]), nl)
+    assert not res.lvs_ok and any("without psdm" in e for e in res.lvs_errors), res.lvs_errors
