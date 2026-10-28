@@ -39,6 +39,8 @@ SPACE = {"poly": 210, "diff": 270, "li": 170, "met1": 140, "licon": 170, "mcon":
 MARGIN = {"poly": 105, "diff": 135, "li": 85, "met1": 70, "licon": 85, "mcon": 95}
 LICON_GATE = 55          # diff licon to gate poly (licon.11)
 POLY_DIFF = 75           # poly.4
+DIFF_EXT = 250           # poly.7: diffusion extends past a gate (Magic "overhang")
+GATE_HALF = 75           # half the drawn gate length (L = 0.15)
 POLY_LICON_DIFF = {"nmos": 190, "pmos": 235}   # licon.14 / licon.9 + psdm.5a
 MIN_PITCH = 215          # gate edge 75 + licon-gate 55 + half licon 85
 
@@ -342,12 +344,33 @@ class _Builder:
             return POLY_LICON_DIFF[d.tag] if lic.tag == "poly" else None
         return None
 
+    def _prev_gate(self, row: str, i: int) -> int | None:
+        """The previous gate of gate column i's diffusion island in this row."""
+        isl = self.island.get((row, i))
+        if isl is None or (row, i) not in self.gate_w:
+            return None
+        prev = [j for j in self.island_gates[isl] if j < i]
+        return max(prev) if prev else None
+
+    def gate_gap(self, row: str, j: int, i: int) -> int:
+        """Minimum poly-edge gap between consecutive gates j < i of one island.
+        The diffusion between them is drawn at the wider device's width up to
+        POLY_DIFF from the narrower gate (whose poly crosses that height), and
+        it must extend DIFF_EXT past the wider gate (poly.7)."""
+        wj, wi = self.gate_w[(row, j)], self.gate_w[(row, i)]
+        return DIFF_EXT + (POLY_DIFF if wj != wi else 0)
+
     def compact(self) -> tuple[list[int], list[Shape]]:
         xs: list[int] = []
         placed: list[Shape] = []
         for i in range(len(self.cols)):
             shapes = self.column_shapes(i)
             x = xs[-1] + MIN_PITCH if xs else 0
+            if self.cols[i].kind == "g":
+                for row in ROWS:
+                    j = self._prev_gate(row, i)
+                    if j is not None:
+                        x = max(x, xs[j] + self.gate_gap(row, j, i) + 2 * GATE_HALF)
             for s in shapes:
                 for e in placed:
                     sp = self.spacing(s, e)
@@ -375,18 +398,35 @@ class _Builder:
                     continue
                 isl = self.island[(row, i)]
                 h, _ = self._sd_widths(row, i)
-                edges = []
+                # profile: a body at the widest neighbour's height h; next to a
+                # narrower gate the body stops POLY_DIFF short of its poly
+                # (poly.4) and a slice at that gate's height bridges the gap
+                edges, gates = [], []
                 for j, sign in ((i - 1, -1), (i + 1, 1)):
-                    if (row, j) in self.gate_w:          # gate side: narrow slice, then full height
-                        g_edge = xs[j] - sign * 75
-                        y0, y1 = self._row_y(row, self.gate_w[(row, j)])
-                        a, b = sorted((g_edge, g_edge - sign * 75))
+                    if (row, j) in self.gate_w:
+                        g_edge = xs[j] - sign * GATE_HALF
+                        w = self.gate_w[(row, j)]
+                        gates.append((g_edge, sign, w))
+                        if w == h:
+                            edges.append(g_edge)
+                            continue
+                        y0, y1 = self._row_y(row, w)
+                        a, b = sorted((g_edge, g_edge - sign * POLY_DIFF))
                         out.append(Shape("diff", a, y0, b, y1, ("isl", isl), row))
-                        edges.append(g_edge - sign * 75)
+                        edges.append(g_edge - sign * POLY_DIFF)
                     elif self.island.get((row, j)) == isl:   # same-island sd: run to its center
                         edges.append(xs[j])
                     else:                                    # island end
                         edges.append(xs[i] + sign * SD_DIFF_HALF)
+                # poly.7: diffusion at least as wide as a gate must extend DIFF_EXT
+                # past it (only checked here when the body ends at this column)
+                for g_edge, sign, w in gates:
+                    far = edges[1] if sign == -1 else edges[0]
+                    far_j = i + 1 if sign == -1 else i - 1
+                    chained = (row, far_j) not in self.gate_w and self.island.get((row, far_j)) == isl
+                    if w == h and not chained and abs(far - g_edge) < DIFF_EXT:
+                        raise RenderError(f"column {i} ({row}): diffusion extends {abs(far - g_edge)} nm "
+                                          f"past gate {i + sign}, poly.7 needs {DIFF_EXT}")
                 y0, y1 = self._row_y(row, h)
                 out.append(Shape("diff", min(edges), y0, max(edges), y1, ("isl", isl), row))
         return out

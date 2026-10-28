@@ -92,4 +92,6 @@ def test_drc_lvs(name, tmp_path):
     from cellgym.groundtruth.verify import resolve, verify
     r = verify(*resolve(name, None), tmp_path, PDK_ROOT)
     assert r.drc_items == [], r.drc_items
+    assert r.magic_items == [], r.magic_items     # Magic full DRC, tapless rules excluded
     assert r.lvs_ok, r.lvs_lines
+    assert r.ok

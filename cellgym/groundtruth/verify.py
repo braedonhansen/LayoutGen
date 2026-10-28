@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""CellGym M2: render a plan, then KLayout DRC + Magic extract + Netgen LVS.
+"""CellGym ground truth: render a plan, then KLayout DRC + Magic DRC + Netgen LVS.
 
     python -m cellgym.groundtruth.verify PLAN [NETLIST] [--pdk-root DIR] [--workdir DIR]
+                                         [--klayout-only]
 
 PLAN is a .plan file or an example name (aoi21, half_adder); NETLIST defaults
 to the .json next to the plan. Run inside WSL/Linux with klayout, magic and
-netgen on PATH. Exit code 0 only if DRC has 0 violations and LVS matches.
+netgen on PATH.
+
+Ground-truth clean (exit code 0) = KLayout deck DRC (sky130A_mr.drc) reports 0
+AND Magic full-style DRC reports 0 after excluding exactly the tapless-cell
+rules in run_m0.MAGIC_EXCLUDE (nwell.4, LU.2, LU.3) AND Netgen LVS (Magic
+extraction) matches uniquely with no property errors. --klayout-only drops
+the Magic DRC term.
 """
 
 from __future__ import annotations
@@ -21,7 +28,7 @@ from pathlib import Path
 from cellgym.dsl.plan import parse
 from cellgym.render.render import Rendered, render
 
-from .run_m0 import drc, extract, lvs
+from .run_m0 import MAGIC_EXCLUDE, drc, extract, lvs, magic_drc
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "dsl" / "examples"
 
@@ -32,10 +39,17 @@ class Result:
     drc_items: list[str] | None
     lvs_ok: bool
     lvs_lines: list[str]
+    magic_items: list[str] | None = None     # None: not run (--klayout-only) or no result
+    magic_excluded: list[str] | None = None
+    magic_run: bool = True
+
+    @property
+    def magic_ok(self) -> bool:
+        return not self.magic_run or self.magic_items == []
 
     @property
     def ok(self) -> bool:
-        return self.drc_items == [] and self.lvs_ok
+        return self.drc_items == [] and self.magic_ok and self.lvs_ok
 
 
 def resolve(plan: str, netlist: str | None) -> tuple[Path, Path]:
@@ -45,11 +59,18 @@ def resolve(plan: str, netlist: str | None) -> tuple[Path, Path]:
     return p, Path(netlist) if netlist else p.with_suffix(".json")
 
 
-def verify(plan_path: Path, netlist_path: Path, out: Path, pdk_root: Path, pdk: str = "sky130A") -> Result:
+def verify(plan_path: Path, netlist_path: Path, out: Path, pdk_root: Path, pdk: str = "sky130A",
+           magic: bool = True) -> Result:
     """Render, write GDS + reference SPICE into `out`, run DRC and LVS."""
+    cell = render(parse(plan_path.read_text()), json.loads(netlist_path.read_text()))
+    return verify_rendered(cell, out, pdk_root, pdk, magic)
+
+
+def verify_rendered(cell: Rendered, out: Path, pdk_root: Path, pdk: str = "sky130A",
+                    magic: bool = True) -> Result:
+    """Ground truth of an already rendered (possibly modified) cell."""
     os.environ["PDK_ROOT"] = str(pdk_root)   # magicrc reads this
     tech = pdk_root / pdk / "libs.tech"
-    cell = render(parse(plan_path.read_text()), json.loads(netlist_path.read_text()))
     out.mkdir(parents=True, exist_ok=True)
     gds = out / f"{cell.name}.gds"
     ref = out / f"{cell.name}.ref.spice"
@@ -61,7 +82,8 @@ def verify(plan_path: Path, netlist_path: Path, out: Path, pdk_root: Path, pdk: 
         ok, lines, _ = lvs(cell.name, ext, ref, tech, out)
     else:
         ok, lines = False, ["magic produced no netlist"]
-    return Result(cell, items, ok, lines)
+    mi, mx = magic_drc(cell.name, gds, tech, out) if magic else (None, None)
+    return Result(cell, items, ok, lines, mi, mx, magic)
 
 
 def report(r: Result, out: Path) -> str:
@@ -72,6 +94,13 @@ def report(r: Result, out: Path) -> str:
     else:
         lines.append(f"DRC : {'PASS' if not r.drc_items else 'FAIL'}  violations={len(r.drc_items)}")
         lines += [f"      {n:4d} x {rule}" for rule, n in sorted(Counter(r.drc_items).items())]
+    if r.magic_run:
+        if r.magic_items is None:
+            lines.append("MDRC: FAIL (no result produced)")
+        else:
+            lines.append(f"MDRC: {'PASS' if not r.magic_items else 'FAIL'}  errors={len(r.magic_items)}  "
+                         f"excluded (tapless, by design)={len(r.magic_excluded)}")
+            lines += [f"      {n:4d} x {why}" for why, n in sorted(Counter(r.magic_items).items())]
     lines.append(f"LVS : {'PASS' if r.lvs_ok else 'FAIL'}")
     lines += [f"      {l.strip()}" for l in r.lvs_lines]
     return "\n".join(lines)
@@ -84,10 +113,11 @@ def main(argv=None) -> int:
     ap.add_argument("--pdk-root", default=os.environ.get("PDK_ROOT", str(Path.home() / "pdk")))
     ap.add_argument("--pdk", default=os.environ.get("PDK", "sky130A"))
     ap.add_argument("--workdir", default=os.environ.get("CELLGYM_OUT", "out/verify"))
+    ap.add_argument("--klayout-only", action="store_true", help="skip Magic DRC (KLayout deck + LVS only)")
     a = ap.parse_args(argv)
     plan, netlist = resolve(a.plan, a.netlist)
     out = (Path(a.workdir) / plan.stem).resolve()
-    r = verify(plan, netlist, out, Path(a.pdk_root), a.pdk)
+    r = verify(plan, netlist, out, Path(a.pdk_root), a.pdk, magic=not a.klayout_only)
     print(report(r, out))
     return 0 if r.ok else 1
 
