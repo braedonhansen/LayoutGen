@@ -142,13 +142,12 @@ def _fmt(x: float) -> str:
 
 
 def reference_spice(netlist: dict, name: str, outputs: list[str]) -> str:
-    """LVS reference: ports inputs, outputs, VDD VSS VPB VNB; bulks on VPB/VNB."""
+    """LVS reference: ports inputs, outputs, VDD VSS VPB VNB; bulks as in the netlist."""
     ports = list(netlist["inputs"]) + list(outputs) + ["VDD", "VSS", "VPB", "VNB"]
     lines = [f"* {name}: reference for LVS (from netlist {netlist.get('id', name)})",
              f".subckt {name} {' '.join(ports)}"]
     for d in netlist["devices"]:
-        bulk = "VPB" if d["type"] == "pmos" else "VNB"
-        lines.append(f"X{d['name']} {d['drain']} {d['gate']} {d['source']} {bulk} {d['model']} "
+        lines.append(f"X{d['name']} {d['drain']} {d['gate']} {d['source']} {d['bulk']} {d['model']} "
                      f"w={_fmt(d['w'])} l={_fmt(d['l'])}")
     lines.append(".ends")
     return "\n".join(lines) + "\n"

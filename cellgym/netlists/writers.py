@@ -7,6 +7,8 @@ import json
 from .enumerate import depth, pdn_function, tree_str
 from .transistors import Cell, Sizing
 
+PORTS_TAIL = ["OUT", "VDD", "VSS", "VPB", "VNB"]   # after the inputs
+
 
 def _fmt(x: float) -> str:
     s = f"{x:.3f}".rstrip("0")
@@ -23,8 +25,8 @@ def out_function_hex(cell: Cell) -> str:
 
 
 def spice(cell: Cell) -> str:
-    """Subcircuit. Port order: inputs (A..), OUT, VDD, VSS."""
-    ports = " ".join(cell.inputs + ["OUT", "VDD", "VSS"])
+    """Subcircuit. Port order: inputs (A..), OUT, VDD, VSS, VPB, VNB."""
+    ports = " ".join(cell.inputs + PORTS_TAIL)
     lines = [f"* {cell.id}: OUT = NOT({tree_str(cell.network.tree)}) [PDN as S/P tree]",
              f".subckt {cell.id} {ports}"]
     for d in cell.devices:
@@ -39,7 +41,7 @@ def cell_json(cell: Cell, sizing: Sizing, fit: bool = True) -> dict:
     return {
         "id": cell.id,
         "inputs": cell.inputs,
-        "ports": cell.inputs + ["OUT", "VDD", "VSS"],
+        "ports": cell.inputs + PORTS_TAIL,
         "function": out_function_hex(cell),
         "function_note": "hex truth table of OUT; bit r = row r, input A = LSB of r",
         "canonical_tree": tree_str(t),

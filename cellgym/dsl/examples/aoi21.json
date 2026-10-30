@@ -11,7 +11,9 @@
     "C",
     "OUT",
     "VDD",
-    "VSS"
+    "VSS",
+    "VPB",
+    "VNB"
   ],
   "function": "07",
   "function_note": "hex truth table of OUT; bit r = row r, input A = LSB of r",
@@ -31,7 +33,7 @@
       "gate": "C",
       "drain": "OUT",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.42,
       "l": 0.15
     },
@@ -42,7 +44,7 @@
       "gate": "A",
       "drain": "OUT",
       "source": "n1",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.84,
       "l": 0.15
     },
@@ -53,7 +55,7 @@
       "gate": "B",
       "drain": "n1",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.84,
       "l": 0.15
     },
@@ -64,7 +66,7 @@
       "gate": "C",
       "drain": "p1",
       "source": "VDD",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -75,7 +77,7 @@
       "gate": "A",
       "drain": "OUT",
       "source": "p1",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -86,7 +88,7 @@
       "gate": "B",
       "drain": "OUT",
       "source": "p1",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     }
@@ -98,6 +100,8 @@
     "OUT",
     "VDD",
     "VSS",
+    "VPB",
+    "VNB",
     "n1",
     "p1"
   ]

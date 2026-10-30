@@ -88,10 +88,10 @@ def _build(t, top, bottom, kind, names, counters, devs, mults, sizing):
         gate = INPUT_NAMES[t[1]]
         if kind == "nmos":
             devs.append(Device(f"MN{i}", "nmos", sizing.nmos_model, gate, top, bottom,
-                               "VSS", snap(sizing.wn_unit * m), sizing.l))
+                               "VNB", snap(sizing.wn_unit * m), sizing.l))
         else:
             devs.append(Device(f"MP{i}", "pmos", sizing.pmos_model, gate, bottom, top,
-                               "VDD", snap(sizing.wp_unit * m), sizing.l))
+                               "VPB", snap(sizing.wp_unit * m), sizing.l))
         return
     if t[0] == "P":
         for c in t[1]:
@@ -126,7 +126,7 @@ def build_cell(net: Network, sizing: Sizing = Sizing()) -> Cell:
     inputs = list(INPUT_NAMES[:net.n_inputs])
     internal = sorted({x for d in devs for x in (d.drain, d.source)}
                       - {"OUT", "VDD", "VSS"}, key=lambda s: (s[0], int(s[1:])))
-    nets = inputs + ["OUT", "VDD", "VSS"] + internal
+    nets = inputs + ["OUT", "VDD", "VSS", "VPB", "VNB"] + internal
     return Cell(cell_id(net), net, devs, nets, inputs)
 
 

@@ -10,8 +10,10 @@ devices <= inputs + 2 (max 8). One canonical cell per input-renaming class
 Writes `<id>.sp`, `<id>.json` per cell and `index.json`. Every cell is
 switch-level self-checked (`selfcheck.py`) before it is written.
 
-- SPICE port order: inputs (A, B, ...), OUT, VDD, VSS. Device lines:
-  `X<name> d g s b <model> w=<um> l=0.15` (NMOS bulk VSS, PMOS bulk VDD).
+- Ports (SPICE order and JSON `ports`): inputs (A, B, ...), OUT, VDD, VSS, VPB,
+  VNB. Device lines: `X<name> d g s b <model> w=<um> l=0.15` (NMOS bulk VNB,
+  PMOS bulk VPB, as in sky130_fd_sc_hd; the cell has no taps, so the bulks are
+  separate ports).
 - Sizing defaults: W_n unit 0.42 um, L 0.15 um, W_p/W_n 1.5, models
   `sky130_fd_pr__nfet_01v8` / `sky130_fd_pr__pfet_01v8_hvt`. Each device width =
   unit x longest series path through it in its own network, snapped to 0.005 um.

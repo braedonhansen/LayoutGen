@@ -108,15 +108,15 @@ def test_deterministic_naming():
     c = build_cell(Network(parse_tree("S(A,B,C)"), 3))
     assert [(d.name, d.drain, d.source) for d in c.devices if d.type == "nmos"] == [
         ("MN1", "OUT", "n1"), ("MN2", "n1", "n2"), ("MN3", "n2", "VSS")]
-    assert c.nets == ["A", "B", "C", "OUT", "VDD", "VSS", "n1", "n2"]
+    assert c.nets == ["A", "B", "C", "OUT", "VDD", "VSS", "VPB", "VNB", "n1", "n2"]
     assert c.id == build_cell(Network(parse_tree("S(A,B,C)"), 3)).id
 
 
 def test_spice_format():
     txt = spice(build_cell(Network(parse_tree("S(A,B)"), 2)))
-    assert ".subckt " in txt and txt.split("\n")[1].endswith("A B OUT VDD VSS")
-    assert re.search(r"^XMN1 OUT A n1 VSS sky130_fd_pr__nfet_01v8 w=0.84 l=0.15$", txt, re.M)
-    assert re.search(r"^XMP1 OUT A VDD VDD sky130_fd_pr__pfet_01v8_hvt w=0.63 l=0.15$", txt, re.M)
+    assert ".subckt " in txt and txt.split("\n")[1].endswith("A B OUT VDD VSS VPB VNB")
+    assert re.search(r"^XMN1 OUT A n1 VNB sky130_fd_pr__nfet_01v8 w=0.84 l=0.15$", txt, re.M)
+    assert re.search(r"^XMP1 OUT A VDD VPB sky130_fd_pr__pfet_01v8_hvt w=0.63 l=0.15$", txt, re.M)
 
 
 def test_generate_small_is_deterministic(tmp_path):

@@ -10,7 +10,9 @@
     "S",
     "C",
     "VDD",
-    "VSS"
+    "VSS",
+    "VPB",
+    "VNB"
   ],
   "note": "hand-written example: stages x = NOR2(A,B), S = AOI21(A,B,x), C = NOR2(x,S); widths = unit x series depth per stage",
   "devices": [
@@ -21,7 +23,7 @@
       "gate": "A",
       "drain": "x",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.42,
       "l": 0.15
     },
@@ -32,7 +34,7 @@
       "gate": "B",
       "drain": "x",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.42,
       "l": 0.15
     },
@@ -43,7 +45,7 @@
       "gate": "A",
       "drain": "px",
       "source": "x",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -54,7 +56,7 @@
       "gate": "B",
       "drain": "VDD",
       "source": "px",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -65,7 +67,7 @@
       "gate": "x",
       "drain": "C",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.42,
       "l": 0.15
     },
@@ -76,7 +78,7 @@
       "gate": "S",
       "drain": "C",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.42,
       "l": 0.15
     },
@@ -87,7 +89,7 @@
       "gate": "x",
       "drain": "p2",
       "source": "VDD",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -98,7 +100,7 @@
       "gate": "S",
       "drain": "C",
       "source": "p2",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -109,7 +111,7 @@
       "gate": "x",
       "drain": "S",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.42,
       "l": 0.15
     },
@@ -120,7 +122,7 @@
       "gate": "A",
       "drain": "S",
       "source": "n1",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.84,
       "l": 0.15
     },
@@ -131,7 +133,7 @@
       "gate": "B",
       "drain": "n1",
       "source": "VSS",
-      "bulk": "VSS",
+      "bulk": "VNB",
       "w": 0.84,
       "l": 0.15
     },
@@ -142,7 +144,7 @@
       "gate": "A",
       "drain": "p1",
       "source": "VDD",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -153,7 +155,7 @@
       "gate": "B",
       "drain": "p1",
       "source": "VDD",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     },
@@ -164,7 +166,7 @@
       "gate": "x",
       "drain": "S",
       "source": "p1",
-      "bulk": "VDD",
+      "bulk": "VPB",
       "w": 1.26,
       "l": 0.15
     }
@@ -176,6 +178,8 @@
     "C",
     "VDD",
     "VSS",
+    "VPB",
+    "VNB",
     "x",
     "px",
     "p2",

@@ -225,9 +225,8 @@ def extract(g, labels) -> tuple[list[dict], dict, list[str]]:
 def _ref(netlist: dict):
     devs = []
     for d in netlist["devices"]:
-        bulk = "VPB" if d["type"] == "pmos" else "VNB"
         devs.append(dict(type=d["type"], model=d["model"], g=d["gate"],
-                         sd=frozenset((d["drain"], d["source"])), b=bulk,
+                         sd=frozenset((d["drain"], d["source"])), b=d["bulk"],
                          w=int(round(d["w"] * 1000)), l=int(round(d["l"] * 1000)), name=d["name"]))
     outputs = [p for p in netlist["ports"] if p not in netlist["inputs"] and p not in SUPPLY]
     ports = list(netlist["inputs"]) + outputs + list(SUPPLY)
