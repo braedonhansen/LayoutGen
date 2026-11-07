@@ -115,10 +115,74 @@ Findings:
 - test_ood is ~1% for every checkpoint; failures are almost all `device-missing` (1,339 of 1,363 for
   rl/run3). RL on <=5-input cells does nothing for 6-input cells: OOD needs pretraining data.
 
+## Toward 6 inputs without 6-input training data
+
+6-input measurement set `out/ood6` (`python -m cellgym.synth.devset build`): 968 six-input cells with a
+4-deep stack on one side (the core never has one), <= 8 devices per side, dropping any whose function
+equals ANY core cell's under renaming. Split by hash: dev 167 (measuring and choosing) / pool 801 (for
+later training). Not benchmark cells; test_ood is untouched. All runs below train on <= 5 inputs only.
+
+Why test_ood was ~1%: in the corpus an n-input cell always uses letters A..n, so `F` never appeared as an
+input. The model never wrote it (max p(F) 0.3% at any position, 0 of 160 samples). Editing F's embedding
+(copy E, extrapolate E+(E-D), mean of A-E plus noise) left renamed-val at 0/120; even renaming a <=4-input
+cell to B.. without F halved its pass rate. The naming itself was learned, so it is fixed in training.
+
+pretrain run4 = run2 + `--relabel 0.5`: half the training sequences get their inputs renamed, order kept,
+onto a random subset of A-F (prompt and target tokens together; checked on 300 plans: all still pass at
+identical width). Val loss 0.0331 (run2 0.0331).
+
+| eval (constrained) | run2 | run4 |
+|---|---|---|
+| val per-sample / pass@8 / greedy | 61.7% / 100% / 73.3% | 59.2% / 93.3% / 80.0% |
+| val renamed so the last input is F, per-sample / pass@8 | 0% / 0% | 58.3% / 100% |
+| ood6 dev per-sample / pass@8 | 0% / 0% | 0% / 0% |
+
+run4's 6-input failures are still `device-missing`, but now from writing too many gate columns (8-11 for 6-8
+devices, repeating letters). On held-out 5-input cells its gate count is right 112/115. Cause: the `in` line
+has one more letter, which shifts every device line by one position (learned absolute positions). With the
+`in` line cut to 5 letters (the gates still name all 6), right gate count goes 3/40 -> 34/40, greedy pass
+0/40 -> 6/40, and sampled ood6 dev reaches 7.3% per sample, 27.5% pass@8, 46/167 cells with mixed groups.
+So the layout skill mostly transfers; the prompt layout did not.
+
+pretrain run5 = run4 + `--prompt noin` (no `in` line; the inputs are the device gates, so device lines sit at
+the same positions for any input count). Val loss 0.0307.
+
+| eval (constrained) | run4 | run5 |
+|---|---|---|
+| val per-sample / pass@8 / greedy | 59.2% / 93.3% / 80.0% | 70.0% / 93.3% / 66.7% |
+| val renamed (last input F), per-sample / pass@8 | 58.3% / 100% | 62.5% / 93.3% |
+| **ood6 dev per-sample / pass@8** | 0% / 0% | **41.6% / 80.8%** (122/167 cells mixed) |
+
+No 6-input cell was trained on. By devices per side: 6 -> 29%, 7 -> 44%, 8 -> 42% per sample. Of 132 failed
+samples (60 cells x 4), 106 had the right gate count and letters but wrong diffusion nets (a gate's
+neighbouring sd nets are not that device's terminals), 24 had too many gates. With distinct letters that is a
+pure lookup (find the device line with this gate, copy its other terminal); the model guesses nets from the
+generator's naming pattern instead.
+
+pretrain run6 = run5 + `--rename-nets 0.5`: half the sequences get their internal nets renamed to random
+distinct names of the same family (n1..n16 / p1..p16) in the netlist and the plan (sd nets and route nets;
+tracks untouched). Checked on 300 plans: all pass at identical width and token length. Val loss 0.0312.
+
+| eval (constrained) | run5 | run6 |
+|---|---|---|
+| val per-sample / pass@8 / greedy | 70.0% / 93.3% / 66.7% | 65.8% / 100% / 66.7% |
+| val renamed, per-sample / pass@8 | 62.5% / 93.3% | 55.8% / 100% |
+| ood6 dev per-sample / pass@8 | **41.6% / 80.8%** | 36.7% / 79.0% |
+| ood6 dev failures (60 cells x 4): right gates, wrong nets / too many gates | 106 / 24 | 108 / 40 |
+
+Negative: renaming nets did not fix the wrong-net failures and added over-counting. The net errors are not
+name memorization; getting the diffusion chain consistent in both rows is the hard part itself. Best
+pretrained checkpoint: `out/synth5/run5/best.pt` (`--relabel 0.5 --prompt noin`).
+
+Lessons: two "naming" variables that change with input count (the letter F; the `in` line's length, which
+moves every device line) took 6-input cells from 0% to 42% per sample with no 6-input data. A third naming
+variable (internal nets) was not a bottleneck. Remaining errors are about chain consistency, which GRPO can
+now work on: 122 of 167 ood6 dev cells give mixed groups at k=8.
+
 ## Status / open
 - Bigger selection set: hold out synthetic topologies (not renames) as a few-hundred-cell selection
   split, so best.pt is not chosen on 15 cells.
-- New-topology pretraining with 6-input cells is the only lever on test_ood (currently ~1%).
+- 6 inputs: run5 already reaches 42% per sample on ood6 dev with no 6-input data. Next: GRPO from run5
+  on the ood6 pool (801 cells), choosing checkpoints on ood6 dev; test_ood scored once at the end.
 - RL knobs not yet tried: constrained sampler in rollouts; k1/k2 KL estimator.
-- New-topology pretraining run is mainly for test_ood (6-input cells; corpus stops at 5 inputs).
-  Also: hold out some stack-4 topologies so Deep stays an OOD axis.
+- Hold out some stack-4 topologies so Deep stays an OOD axis.

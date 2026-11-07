@@ -51,8 +51,16 @@ def ids(tokens: list[str]) -> list[int]:
 
 # -- encode ----------------------------------------------------------------------------
 
-def encode_netlist(netlist: dict) -> list[str]:
-    toks = ["<bos>", "in", *netlist["inputs"], "\n"]
+PROMPT_FORMATS = ("v1", "noin")
+
+
+def encode_netlist(netlist: dict, fmt: str = "v1") -> list[str]:
+    """Prompt tokens. fmt "v1" starts with the `in` line; "noin" leaves it out (the inputs
+    are the device gates anyway), so device lines sit at the same positions whatever the
+    number of inputs."""
+    if fmt not in PROMPT_FORMATS:
+        raise ValueError(f"unknown prompt format {fmt!r}")
+    toks = ["<bos>"] if fmt == "noin" else ["<bos>", "in", *netlist["inputs"], "\n"]
     for d in netlist["devices"]:
         toks += [d["type"][0], d["gate"], d["drain"], d["source"], f"w{d['w']:g}", "\n"]
     return toks + ["<sep>"]

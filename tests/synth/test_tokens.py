@@ -22,3 +22,15 @@ def test_round_trip_core_cells(core_cells):
 def test_unknown_token_is_an_error():
     with pytest.raises(KeyError):
         T.ids(["not-a-token"])
+
+
+def test_noin_prompt_drops_only_the_in_line():
+    nl = {"inputs": ["A", "B"], "devices": [
+        {"type": "nmos", "gate": "A", "drain": "OUT", "source": "n1", "w": 0.42},
+        {"type": "pmos", "gate": "B", "drain": "OUT", "source": "VDD", "w": 0.63}]}
+    v1, noin = T.encode_netlist(nl), T.encode_netlist(nl, "noin")
+    assert v1[:5] == ["<bos>", "in", "A", "B", "\n"]
+    assert noin == ["<bos>"] + v1[5:]
+    import pytest
+    with pytest.raises(ValueError):
+        T.encode_netlist(nl, "bogus")

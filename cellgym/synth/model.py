@@ -26,6 +26,7 @@ class Config:
     heads: int = 8
     max_len: int = 512
     dropout: float = 0.0
+    prompt: str = "v1"          # tokens.encode_netlist format the model was trained on
 
 
 class Block(nn.Module):

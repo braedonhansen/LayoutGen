@@ -19,6 +19,7 @@ import hashlib
 import json
 import math
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -52,9 +53,9 @@ def split_topologies(topology_ids, frac: float = 0.1) -> tuple[list[str], list[s
     return [t for t in tops if t not in vs], val
 
 
-def encode_record(r: dict) -> tuple[list[int], int]:
+def encode_record(r: dict, fmt: str = "v1") -> tuple[list[int], int]:
     """(full id sequence, prompt length)."""
-    p = T.ids(T.encode_netlist(r["netlist"]))
+    p = T.ids(T.encode_netlist(r["netlist"], fmt))
     return p + T.ids(T.encode_plan(r["plan"])), len(p)
 
 
@@ -74,8 +75,106 @@ def collate(examples):
     return X, Y
 
 
-def batches(examples, batch: int, rng: random.Random):
-    """Endless batches, bucketed by length within shuffled chunks."""
+INPUT_IDS = [T.TOKEN_ID[c] for c in T.INPUTS]
+
+
+def letter_map(n_used: int, rng: random.Random) -> dict[int, int]:
+    """Order-preserving rename of inputs A.. (n_used of them) onto a random subset of A-F.
+
+    Only names change: the i-th input stays the i-th input (so the `in` line stays sorted
+    and the truth-table bit order is unchanged); devices, nets, widths and the plan's
+    structure are untouched.
+    """
+    target = sorted(rng.sample(range(len(INPUT_IDS)), n_used))
+    return {INPUT_IDS[i]: INPUT_IDS[j] for i, j in enumerate(target)}
+
+
+def relabel_netlist(netlist: dict, names: dict[str, str]) -> dict:
+    """The same netlist with input names renamed (e.g. {"A": "B", "B": "F"}); nothing else changes."""
+    f = lambda x: names.get(x, x)
+    nl = json.loads(json.dumps(netlist))
+    for key in ("inputs", "nets", "ports"):
+        if key in nl:
+            nl[key] = [f(x) for x in nl[key]]
+    for d in nl["devices"]:
+        d["gate"] = f(d["gate"])
+    if "canonical_tree" in nl:
+        nl["canonical_tree"] = "".join(f(ch) if ch in T.INPUTS else ch for ch in nl["canonical_tree"])
+    return nl
+
+
+def relabel_rows(X, Y, rng: random.Random, p: float):
+    """Apply a fresh letter_map to each row with probability p (X and Y consistently)."""
+    if p <= 0:
+        return X, Y
+    for r in range(X.shape[0]):
+        if rng.random() >= p:
+            continue
+        used = [k for k, t in enumerate(INPUT_IDS) if (X[r] == t).any()]
+        if not used:
+            continue
+        n = max(used) + 1          # corpus inputs are always A.. in order
+        m = letter_map(n, rng)
+        if all(k == v for k, v in m.items()):
+            continue
+        lut = torch.arange(len(T.VOCAB))
+        for k, v in m.items():
+            lut[k] = v
+        X[r] = lut[X[r]]
+        keep = Y[r] != IGNORE
+        Y[r][keep] = lut[Y[r][keep]]
+    return X, Y
+
+
+INTERNAL_NET = re.compile(r"([np])(\d+)")
+MAX_NET = 16                      # tokens n1..n16 / p1..p16 exist in the vocabulary
+
+
+def rename_nets(netlist: dict, plan: str, rng: random.Random) -> tuple[dict, str]:
+    """Rename the internal nets (n1.., p1..) to random distinct names of the same family.
+
+    Only names change: every device keeps its terminals, every plan line keeps its
+    structure. Touches device drains/sources, the netlist's net list, plan sd nets
+    (n=/p=) and the net (first word) of route lines; tracks, which share the n0../p0..
+    spelling, are left alone.
+    """
+    nets = sorted({t for d in netlist["devices"] for t in (d["drain"], d["source"])
+                   if INTERNAL_NET.fullmatch(t)})
+    names: dict[str, str] = {}
+    for fam in "np":
+        own = [x for x in nets if x[0] == fam]
+        new = rng.sample(range(1, MAX_NET + 1), len(own))
+        names |= {x: f"{fam}{k}" for x, k in zip(own, new)}
+    f = lambda x: names.get(x, x)
+    nl = json.loads(json.dumps(netlist))
+    for d in nl["devices"]:
+        d["drain"], d["source"] = f(d["drain"]), f(d["source"])
+    if "nets" in nl:
+        nl["nets"] = [f(x) for x in nl["nets"]]
+    lines = []
+    for line in plan.splitlines():
+        w = line.split()
+        if w and w[0] == "col":
+            w = [re.sub(r"^([np]=)([^*]+)(\*?)$", lambda m: m[1] + f(m[2]) + m[3], x) for x in w]
+        elif w and w[0] == "route":
+            w[1] = f(w[1])
+        lines.append(" ".join(w))
+    return nl, "\n".join(lines) + "\n"
+
+
+def batches(examples, batch: int, rng: random.Random, relabel: float = 0.0,
+            records: list[dict] | None = None, rename: float = 0.0, fmt: str = "v1"):
+    """Endless batches, bucketed by length within shuffled chunks.
+
+    rename > 0 (needs records, parallel to examples): that fraction of sequences is
+    re-encoded with rename_nets applied (same length, so the bucketing still holds).
+    """
+    def example(j):
+        if rename > 0 and rng.random() < rename:
+            nl, plan = rename_nets(records[j]["netlist"], records[j]["plan"], rng)
+            return make_example(*encode_record({"netlist": nl, "plan": plan}, fmt))
+        return examples[j]
+
     while True:
         order = list(range(len(examples)))
         rng.shuffle(order)
@@ -86,7 +185,7 @@ def batches(examples, batch: int, rng: random.Random):
             out += [part[k:k + batch] for k in range(0, len(part), batch)]
         rng.shuffle(out)
         for b in out:
-            yield collate([examples[j] for j in b])
+            yield relabel_rows(*collate([example(j) for j in b]), rng, relabel)
 
 
 def loss_fn(model, X, Y):
@@ -132,10 +231,12 @@ def train(a) -> dict:
     tr_tops, va_tops = split_topologies([r["topology_id"] for r in records], a.val_frac)
     vs = set(va_tops)
     (out / "split.json").write_text(json.dumps({"train": tr_tops, "val": va_tops}, indent=1) + "\n")
-    train_ex = [make_example(*encode_record(r)) for r in records if r["topology_id"] not in vs]
-    val_ex = [make_example(*encode_record(r)) for r in records if r["topology_id"] in vs]
+    train_recs = [r for r in records if r["topology_id"] not in vs]
+    train_ex = [make_example(*encode_record(r, a.prompt)) for r in train_recs]
+    val_ex = [make_example(*encode_record(r, a.prompt)) for r in records if r["topology_id"] in vs]
 
-    cfg = Config(d_model=a.d_model, layers=a.layers, heads=a.heads, max_len=a.max_len, dropout=a.dropout)
+    cfg = Config(d_model=a.d_model, layers=a.layers, heads=a.heads, max_len=a.max_len, dropout=a.dropout,
+                 prompt=a.prompt)
     model = GPT(cfg).to(device)
     decay = [p for p in model.parameters() if p.dim() >= 2]
     nodecay = [p for p in model.parameters() if p.dim() < 2]
@@ -152,7 +253,7 @@ def train(a) -> dict:
           f"val {len(val_ex)} seqs / {len(va_tops)} topologies | device {device} amp {amp_dtype}", flush=True)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
-    it = batches(train_ex, a.batch, random.Random(a.seed))
+    it = batches(train_ex, a.batch, random.Random(a.seed), a.relabel, train_recs, a.rename_nets, a.prompt)
     log = (out / "log.jsonl").open("w")
     best, first_train, last_train, window, ntok = math.inf, None, None, [], 0
     result = {"params": model.n_params()}
@@ -226,6 +327,12 @@ def parse(argv=None):
     ap.add_argument("--eval-every", type=int, default=100)
     ap.add_argument("--val-frac", type=float, default=0.1)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--rename-nets", type=float, default=0.0,
+                    help="fraction of training sequences whose internal nets are renamed (rename_nets)")
+    ap.add_argument("--relabel", type=float, default=0.0,
+                    help="fraction of training sequences whose input letters are renamed onto a "
+                         "random subset of A-F (letter_map; val stays canonical)")
+    ap.add_argument("--prompt", default="v1", choices=T.PROMPT_FORMATS, help="prompt format (tokens.encode_netlist)")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     return ap.parse_args(argv)

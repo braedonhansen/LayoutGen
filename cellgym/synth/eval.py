@@ -165,7 +165,7 @@ def main(argv=None) -> int:
     t0 = time.time()
     samples = {}
     for cid in ids:
-        prompt = T.ids(T.encode_netlist(cells[cid]))
+        prompt = T.ids(T.encode_netlist(cells[cid], model.cfg.prompt))
         if a.constrained:
             from cellgym.synth.constrain import sample_constrained
             samples[cid] = sample_constrained(model, prompt, cells[cid], n=a.k,

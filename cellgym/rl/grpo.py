@@ -247,6 +247,7 @@ def main(argv=None) -> int:
     if a.weighting == "bucket":
         sampler.set_weights(CellSampler.bucket_weights(env, "train", a.uniform_mix))
     model = M.load(a.ckpt, device)
+    env.prompt_fmt = model.cfg.prompt
     ref = None
     if a.beta > 0:
         ref = copy.deepcopy(model).eval()
@@ -258,6 +259,7 @@ def main(argv=None) -> int:
     val_env, best = None, None
     if a.eval_every:
         val_env = make_env("val", cells_dir=a.cells, allow_heldout=True)
+        val_env.prompt_fmt = model.cfg.prompt
 
     def val_check(step, log):
         nonlocal best

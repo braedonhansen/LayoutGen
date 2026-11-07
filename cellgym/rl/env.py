@@ -65,6 +65,7 @@ class PlanEnv:
             raise ValueError(f"no W_euler for {len(missing)} cells (e.g. {missing[0]})")
         self.cells, self.w_euler, self.split_of = dict(cells), dict(w_euler), split_of
         self._prompts: dict[str, list[int]] = {}
+        self.prompt_fmt = "v1"         # set to the policy's model.cfg.prompt before sampling
         self._pool: ProcessPoolExecutor | None = None
         self._pool_jobs = 0
 
@@ -73,7 +74,7 @@ class PlanEnv:
 
     def prompt_ids(self, cell_id: str) -> list[int]:
         if cell_id not in self._prompts:
-            self._prompts[cell_id] = T.ids(T.encode_netlist(self.cells[cell_id]))
+            self._prompts[cell_id] = T.ids(T.encode_netlist(self.cells[cell_id], self.prompt_fmt))
         return list(self._prompts[cell_id])
 
     def _task(self, cid, ids):
