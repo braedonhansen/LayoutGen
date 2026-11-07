@@ -34,8 +34,10 @@ TRACKS = ["c0", "c1", "c2"] + [f"{k}{i}" for k in "np" for i in range(0, 17)]
 WIDTHS = ["w0.42", "w0.63", "w0.84", "w1.26", "w1.89"]
 WORDS = ["in", "n", "p", "col", "g", "sd", "n=", "p=", "*", "gate:", "nmos:", "pmos:",
          "route", "pin", "li1", "met1"]
+WIDTHS_STACK4 = ["w1.68", "w2.52"]               # appended last so earlier ids stay stable
 VOCAB: list[str] = list(dict.fromkeys(
-    SPECIAL + WORDS + INPUTS + NETS + TRACKS + WIDTHS + [str(i) for i in range(MAX_NUM + 1)]))
+    SPECIAL + WORDS + INPUTS + NETS + TRACKS + WIDTHS + [str(i) for i in range(MAX_NUM + 1)]
+    + WIDTHS_STACK4))
 TOKEN_ID = {t: i for i, t in enumerate(VOCAB)}
 PAD, BOS, SEP, EOS, NL = (TOKEN_ID[t] for t in SPECIAL)
 

@@ -39,16 +39,26 @@ class Block(nn.Module):
         self.out = nn.Linear(4 * c.d_model, c.d_model, bias=False)
         self.drop = nn.Dropout(c.dropout)
 
-    def forward(self, x, cache=None):
-        """cache: None (full causal pass) or a [k, v] pair of (B, H, S, D) tensors, extended in place."""
+    def forward(self, x, cache=None, mask=None):
+        """cache: None (full causal pass) or a [k, v] pair of (B, H, S, D) tensors, extended in place.
+        mask: optional bool (B, 1, T, S) attention mask (True = attend); replaces the causal flag."""
         B, T_, C = x.shape
         q, k, v = self.qkv(self.ln1(x)).view(B, T_, 3, self.h, C // self.h).permute(2, 0, 3, 1, 4)
-        if cache is None:
-            a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-        else:
+        if isinstance(cache, dict):          # preallocated: {"k": (B,H,L,D), "v": ..., "n": filled}
+            n0 = cache["n"]
+            cache["k"][:, :, n0:n0 + T_] = k
+            cache["v"][:, :, n0:n0 + T_] = v
+            cache["n"] = n0 + T_
+            k, v = cache["k"][:, :, :n0 + T_], cache["v"][:, :, :n0 + T_]
+        elif cache is not None:
             if cache:
                 k, v = torch.cat([cache[0], k], 2), torch.cat([cache[1], v], 2)
             cache[:] = [k, v]
+        if mask is not None:
+            a = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        elif cache is None:
+            a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        else:
             # prefill (T_ > 1, empty cache) is causal; a single new token attends to everything
             a = F.scaled_dot_product_attention(q, k, v, is_causal=T_ > 1)
         x = x + self.drop(self.proj(a.transpose(1, 2).reshape(B, T_, C)))
@@ -78,14 +88,19 @@ class GPT(nn.Module):
     def n_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, idx, caches=None, start: int = 0):
-        """idx (B, T) -> logits (B, T, vocab). caches: per-layer lists for incremental decoding."""
+    def forward(self, idx, caches=None, start: int = 0, pos=None, mask=None):
+        """idx (B, T) -> logits (B, T, vocab). caches: per-layer lists for incremental decoding.
+        pos: optional (B, T) position ids (overrides start); mask: optional (B, 1, T, S) bool."""
         T_ = idx.shape[1]
-        if start + T_ > self.cfg.max_len:
-            raise ValueError(f"sequence length {start + T_} exceeds max_len {self.cfg.max_len}")
-        x = self.tok(idx) + self.pos(torch.arange(start, start + T_, device=idx.device))
+        if pos is None:
+            if start + T_ > self.cfg.max_len:
+                raise ValueError(f"sequence length {start + T_} exceeds max_len {self.cfg.max_len}")
+            pos = torch.arange(start, start + T_, device=idx.device)
+        elif int(pos.max()) >= self.cfg.max_len:
+            raise ValueError(f"position {int(pos.max())} exceeds max_len {self.cfg.max_len}")
+        x = self.tok(idx) + self.pos(pos)
         for i, b in enumerate(self.blocks):
-            x = b(x, None if caches is None else caches[i])
+            x = b(x, None if caches is None else caches[i], mask)
         return self.head(self.ln(x))
 
 
@@ -140,5 +155,77 @@ def sample(model: GPT, prompt_ids: list[int], n: int = 1, temperature: float = 1
         model.train()
     res = []
     for row in out.tolist():
+        res.append(row[:row.index(T.EOS) + 1] if T.EOS in row else row)
+    return res
+
+
+@torch.no_grad()
+def sample_many(model: GPT, prompts: list[list[int]], temperature: float = 1.0, max_new: int = 320,
+                top_k: int | None = None, chunk: int = 32) -> list[list[int]]:
+    """One continuation per prompt (prompts may differ in length), batched `chunk` rows at a time.
+
+    Prompts are left-padded; each row keeps its own position ids and pads are masked out of
+    attention, so a row samples from the same distribution as sample(model, prompt). Each row
+    gets min(max_new, max_len - len(prompt)) tokens; outputs are cut at and including EOS.
+    """
+    order = sorted(range(len(prompts)), key=lambda i: len(prompts[i]))   # similar lengths per chunk
+    res: list = [None] * len(prompts)
+    for i in range(0, len(order), chunk):
+        idx = order[i:i + chunk]
+        for j, r in zip(idx, _sample_rows(model, [prompts[j] for j in idx], temperature, max_new, top_k)):
+            res[j] = r
+    return res
+
+
+def _sample_rows(model, prompts, temperature, max_new, top_k):
+    was_training = model.training
+    model.eval()
+    dev = next(model.parameters()).device
+    n = len(prompts)
+    lens = torch.tensor([len(p) for p in prompts], device=dev)
+    P = int(lens.max())
+    budget = (model.cfg.max_len - lens).clamp_max(max_new)        # per-row new-token limit
+    steps = int(budget.max())
+    pad = P - lens                                                  # left pads per row
+    x = torch.full((n, P), T.PAD, dtype=torch.long, device=dev)
+    for b, p in enumerate(prompts):
+        x[b, P - len(p):] = torch.tensor(p, device=dev)
+    ar = torch.arange(P, device=dev)
+    valid = ar[None] >= pad[:, None]                                # (n, P) real prompt tokens
+    pos = (ar[None] - pad[:, None]).clamp_min(0)
+    causal = ar[None, :] <= ar[:, None]                             # (P, P)
+    # pad queries attend to themselves only, so no row of the mask is empty
+    m = (causal[None] & valid[:, None, :]) | torch.eye(P, dtype=torch.bool, device=dev)[None]
+    c = model.cfg
+    L = P + steps
+    dt = next(model.parameters()).dtype
+    caches = [{"k": torch.empty(n, c.heads, L, c.d_model // c.heads, device=dev, dtype=dt),
+               "v": torch.empty(n, c.heads, L, c.d_model // c.heads, device=dev, dtype=dt), "n": 0}
+              for _ in model.blocks]
+    logits = model(x, caches, pos=pos, mask=m[:, None])[:, -1].float()
+    kvalid = valid
+    out = torch.full((n, steps), T.PAD, dtype=torch.long, device=dev)
+    done = budget <= 0
+    for t in range(steps):
+        if top_k:
+            kth = logits.topk(min(top_k, logits.shape[-1]), dim=-1).values[:, -1:]
+            logits = logits.masked_fill(logits < kth, float("-inf"))
+        if temperature <= 0 or top_k == 1:
+            nxt = logits.argmax(-1)
+        else:
+            nxt = torch.multinomial(F.softmax(logits / temperature, -1), 1).squeeze(1)
+        nxt = nxt.masked_fill(done, T.PAD)
+        out[:, t] = nxt
+        done |= (nxt == T.EOS) | (t + 1 >= budget)
+        if bool(done.all()):
+            break
+        kvalid = torch.cat([kvalid, torch.ones(n, 1, dtype=torch.bool, device=dev)], 1)
+        step_pos = (lens + t).clamp_max(model.cfg.max_len - 1)[:, None]
+        logits = model(nxt[:, None], caches, pos=step_pos, mask=kvalid[:, None, None, :])[:, -1].float()
+    if was_training:
+        model.train()
+    res = []
+    for b, row in enumerate(out.tolist()):
+        row = row[:int(budget[b])]
         res.append(row[:row.index(T.EOS) + 1] if T.EOS in row else row)
     return res

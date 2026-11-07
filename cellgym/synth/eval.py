@@ -147,6 +147,7 @@ def main(argv=None) -> int:
     ap.add_argument("--device", default=None)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default=None)
+    ap.add_argument("--constrained", action="store_true", help="grammar-constrained decoding (synth.constrain)")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
 
@@ -165,7 +166,12 @@ def main(argv=None) -> int:
     samples = {}
     for cid in ids:
         prompt = T.ids(T.encode_netlist(cells[cid]))
-        samples[cid] = M.sample(model, prompt, n=a.k, temperature=a.temperature, max_new=MAX_NEW)
+        if a.constrained:
+            from cellgym.synth.constrain import sample_constrained
+            samples[cid] = sample_constrained(model, prompt, cells[cid], n=a.k,
+                                              temperature=a.temperature, max_new=MAX_NEW)
+        else:
+            samples[cid] = M.sample(model, prompt, n=a.k, temperature=a.temperature, max_new=MAX_NEW)
     t_sample = time.time() - t0
     result = score_samples({c: cells[c] for c in ids}, samples)
     result |= {"ckpt": str(a.ckpt), "splits": a.splits, "k": a.k, "temperature": a.temperature,
