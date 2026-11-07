@@ -175,6 +175,28 @@ class CellSampler:
         return out
 
     @staticmethod
+    def bucket_weights(env, ref_split: str = "train", uniform_mix: float = 0.1) -> dict[str, float]:
+        """Weights so that cells are drawn by (n_inputs, n_devices) bucket in the proportions of the
+        benchmark `ref_split` cells, mixed with `uniform_mix` of a uniform draw over all cells.
+        Buckets absent from the reference split get only the uniform share."""
+        def bucket(c):
+            nl = env.cells[c]
+            return len(nl["inputs"]), len(nl["devices"])
+        ids = env.ids()
+        count: dict = {}
+        for c in ids:
+            count[bucket(c)] = count.get(bucket(c), 0) + 1
+        ref = [c for c in ids if env.split_of.get(c) == ref_split]
+        if not ref:
+            raise ValueError(f"no {ref_split} cells in the env")
+        share: dict = {}
+        for c in ref:
+            share[bucket(c)] = share.get(bucket(c), 0) + 1 / len(ref)
+        n = len(ids)
+        return {c: (1 - uniform_mix) * share.get(bucket(c), 0.0) / count[bucket(c)] + uniform_mix / n
+                for c in ids}
+
+    @staticmethod
     def expand(cell_ids: list[str], group_size: int) -> list[str]:
         """One entry per sample, samples of a cell adjacent: [a,a,a,a,b,b,b,b,...]."""
         return [c for c in cell_ids for _ in range(group_size)]

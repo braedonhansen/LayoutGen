@@ -82,3 +82,30 @@ def test_batched_rollout_groups_adjacent():
     ro = grpo.rollout(tiny(), env, cids, 2, 1.0, 20, sample_chunk=4)
     assert ro.cell_ids == [c for c in cids for _ in range(2)]
     assert all(p == env.prompt_ids(c) for p, c in zip(ro.prompts, ro.cell_ids))
+
+
+def test_kl_clamp_bounds_penalty():
+    env = make_env("train", cache=None)
+    model, ref = tiny(), tiny()
+    with torch.no_grad():
+        for p in ref.parameters():
+            p.add_(torch.randn_like(p) * 2.0)          # far from model: big log-ratios
+    ro = grpo.rollout(model, env, env.ids()[:1], 2, 1.0, 30)
+    adv = torch.zeros(2)
+    _, free = grpo.grpo_loss(model, ro, adv, [0, 1], ref, beta=1.0)
+    _, capped = grpo.grpo_loss(model, ro, adv, [0, 1], ref, beta=1.0, kl_clamp=1.0)
+    assert capped["kl"] <= free["kl"] and capped["kl"] <= (2.718281828 - 2) + 1e-4
+
+
+def test_cli_val_eval_writes_best(tmp_path):
+    model = tiny()
+    ck = tmp_path / "t.pt"
+    M.save(model, model.cfg, ck)
+    rc = grpo.main(["--ckpt", str(ck), "--out", str(tmp_path / "o"), "--steps", "2", "--groups", "2",
+                    "--group-size", "2", "--max-new", "20", "--jobs", "1", "--device", "cpu",
+                    "--eval-every", "1", "--eval-k", "2", "--kl-clamp", "3"])
+    assert rc == 0
+    rows = [json.loads(x) for x in (tmp_path / "o" / "log.jsonl").read_text().splitlines()]
+    evals = [r for r in rows if r.get("eval") == "val"]
+    assert [r["step"] for r in evals] == [0, 1, 2] and evals[0]["best"]
+    assert (tmp_path / "o" / "best.pt").exists()

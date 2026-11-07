@@ -58,3 +58,18 @@ def test_sampler_deterministic(env):
 def test_prompt(env):
     p = env.prompt_ids(env.ids()[0])
     assert p[0] == T.BOS and p[-1] == T.SEP
+
+
+def test_bucket_weights_match_reference_split():
+    from cellgym.rl.env import CellSampler, PlanEnv
+    def nl(k, d):
+        return {"inputs": ["A"] * k, "devices": [{}] * d}
+    cells = {"t1": nl(2, 4), "t2": nl(5, 14), "s1": nl(5, 14), "s2": nl(5, 14), "s3": nl(5, 18), "s4": nl(5, 18)}
+    env = PlanEnv.__new__(PlanEnv)
+    env.cells, env.split_of = cells, {"t1": "train", "t2": "train"}
+    w = CellSampler.bucket_weights(env, "train", uniform_mix=0.0)
+    assert abs(w["t1"] - 0.5) < 1e-9                          # bucket (2,4): half the train cells, 1 cell
+    assert abs(w["t2"] + w["s1"] + w["s2"] - 0.5) < 1e-9      # bucket (5,14) shared by 3 cells
+    assert w["s3"] == 0 and abs(sum(w.values()) - 1) < 1e-9
+    w = CellSampler.bucket_weights(env, "train", uniform_mix=0.1)
+    assert w["s3"] > 0 and abs(sum(w.values()) - 1) < 1e-9

@@ -78,10 +78,47 @@ estimator exp(ref - logp) is unbounded).
 Bigger updates hurt held-out results (greedy below run2); train pass rate did not show it.
 Best checkpoint remains `out/rl/run0/last.pt`. Run1 files: `out/rl/run1/step{100,200}.pt`, evals.
 
+From run2 on, model selection uses **val only** (`--eval-every 25`: 16 unconstrained samples at
+T=0.8 + greedy per val cell; `best.pt` = best val per-sample pass). test_id/test_ood were evaluated
+once at the end and not used for any choice. (run0/run1 were compared on val+test_id.)
+
+rl/run2: run0 settings for 500 steps, `--kl-clamp 3 --eval-every 25`. Val per-sample pass 59.6% (step 0)
+-> 81.2% (best, step 450), still rising slowly; KL 0.009 at the end, no spikes.
+
+rl/run3: run2 + `--weighting bucket` (cells drawn by (inputs, devices) in benchmark-train proportions,
+10% uniform mix). Motivation: 86% of synthetic cells have 16-18 devices, which the benchmark core never
+has, and run0 was weakest on small cells (4-10 devices). Val rose faster (78.7% at step 150 vs 66% for
+run2) and peaked at 83.3% (step 300); KL grew ~2x faster than run2. Stopped at step 400 (4 checks
+without a new best).
+
+Final eval (once; constrained; k=8 T=0.8 and greedy):
+
+| test_id (25 cells) | pretrain run2 | rl/run0 | rl/run2 best | rl/run3 best |
+|---|---|---|---|---|
+| per-sample pass | 56.0% | 58.5% | **64.0%** | 61.0% |
+| sampled pass@1 | 52% | 64% | **72%** | 64% |
+| pass@8 | 88% | **96%** | 92% | 80% |
+| greedy pass@1 | 68% | 56% | **72%** | 68% |
+| best W/W_euler | 0.991 | 0.987 | 0.987 | 0.956 |
+
+| test_ood (172 cells, all 6-input) | pretrain | rl/run0 | rl/run2 | rl/run3 |
+|---|---|---|---|---|
+| per-sample pass | 0.8% | 1.2% | 1.2% | 0.9% |
+| pass@8 | 2.3% | 2.9% | 2.9% | 2.9% |
+
+Findings:
+- RL helps in-distribution, modestly: best (rl/run2) +8 pts per sample and +4 pts greedy on test_id
+  (200 samples / 25 cells; roughly 1.5-2 standard errors). Val gains (+22 pts) greatly overstate it.
+- Val (15 cells) is too small to select on: run3 beat run2 on val by 2-14 pts at every check from
+  step 100, but is worse on test_id (lower pass@8 than the pretrained model). Picking the max of ~20
+  noisy checks also inflates the val number.
+- test_ood is ~1% for every checkpoint; failures are almost all `device-missing` (1,339 of 1,363 for
+  rl/run3). RL on <=5-input cells does nothing for 6-input cells: OOD needs pretraining data.
+
 ## Status / open
-- Next RL knobs: keep lr 1e-5 / 1 inner epoch and run longer; bound the KL term (clamp
-  ref - logp or use k1/k2); constrained sampler in rollouts. Evaluate held-out every ~50 steps.
+- Bigger selection set: hold out synthetic topologies (not renames) as a few-hundred-cell selection
+  split, so best.pt is not chosen on 15 cells.
+- New-topology pretraining with 6-input cells is the only lever on test_ood (currently ~1%).
+- RL knobs not yet tried: constrained sampler in rollouts; k1/k2 KL estimator.
 - New-topology pretraining run is mainly for test_ood (6-input cells; corpus stops at 5 inputs).
   Also: hold out some stack-4 topologies so Deep stays an OOD axis.
-- Uncommitted code: vocab extension (tokens.py), `--constrained` (eval.py), synth/constrain.py,
-  cellgym/rl/, tests/synth/test_constrain.py, tests/rl/.
