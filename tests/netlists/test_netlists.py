@@ -15,7 +15,7 @@ from cellgym.netlists.enumerate import (
 from cellgym.netlists.generate import generate
 from cellgym.netlists.selfcheck import check_cell
 from cellgym.netlists.transistors import Sizing, build_cell
-from cellgym.netlists.writers import spice
+from cellgym.netlists.writers import cell_json, spice
 
 
 @pytest.fixture(scope="module")
@@ -150,3 +150,11 @@ def test_netgen_parses_and_matches_self(tmp_path):
          str(tmp_path / "comp.out")],
         capture_output=True, text=True, cwd=tmp_path, timeout=120)
     assert "Circuits match uniquely" in res.stdout, res.stdout[-800:]
+
+
+def test_ports_and_bulks_vpb_vnb():
+    cell = build_cell(Network(parse_tree("P(C,S(A,B))"), 3))
+    j = cell_json(cell, Sizing())
+    assert j["ports"] == ["A", "B", "C", "OUT", "VDD", "VSS", "VPB", "VNB"]
+    assert {d["bulk"] for d in j["devices"] if d["type"] == "nmos"} == {"VNB"}
+    assert {d["bulk"] for d in j["devices"] if d["type"] == "pmos"} == {"VPB"}
