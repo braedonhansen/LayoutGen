@@ -42,8 +42,8 @@ PARAMS = Params(max_inputs=6, max_stack=4, extra_devices=2, max_devices=8)
 DEV_MOD = 6          # about 1 in 6 cells -> dev
 
 
-def part_of(cid: str) -> str:
-    h = int(hashlib.sha256(f"cellgym-ood6:{cid}".encode()).hexdigest(), 16)
+def part_of(cid: str, n_inputs: int = 6) -> str:
+    h = int(hashlib.sha256(f"cellgym-ood{n_inputs}:{cid}".encode()).hexdigest(), 16)
     return "dev" if h % DEV_MOD == 0 else "pool"
 
 
@@ -56,6 +56,30 @@ def core_functions() -> set[tuple[int, int]]:
     return out
 
 
+def sample_networks(n_inputs: int, n_devices: int, max_stack: int, count: int, seed: int = 0,
+                    tries: int = 2_000_000) -> list:
+    """Random distinct irredundant networks with exactly n_inputs inputs and n_devices devices per
+    side, both stacks <= max_stack. For sizes where exhaustive enumeration is too slow."""
+    import random
+    from cellgym.netlists.enumerate import (Network, _irredundant, _label, canonical, shapes,
+                                            var_masks)
+    rng = random.Random(seed)
+    shp = shapes(n_devices, max_stack)[n_devices]
+    masks, full = var_masks(n_inputs)
+    seen = set()
+    for _ in range(tries):
+        if len(seen) >= count:
+            break
+        lab = [rng.randrange(n_inputs) for _ in range(n_devices)]
+        if len(set(lab)) < n_inputs:
+            continue
+        t = _label(rng.choice(shp), iter(lab))
+        if depth(t, dual=True) > max_stack or not _irredundant(t, n_devices, masks, full):
+            continue
+        seen.add(canonical(t, n_inputs))
+    return [Network(t, n_inputs) for t in sorted(seen)]
+
+
 def _label(nl: dict):
     from cellgym.synth.generate import euler_plans
     try:
@@ -65,24 +89,35 @@ def _label(nl: dict):
     return nl["id"], (plans[0] if plans else None), fails
 
 
-def build(out: Path, jobs: int) -> dict:
+def build(out: Path, jobs: int, params: Params = PARAMS, limit: int | None = None,
+          min_devices: int = 0, min_stack: int = 0, nets=None) -> dict:
+    """Cells with exactly params.max_inputs inputs. For 6 inputs the core (benchmark) trees and
+    functions are excluded; the core has no cell with more than 6 inputs. `limit` keeps a
+    hash-ordered subset of the candidates (for very large enumerations)."""
     t0 = time.time()
-    core_trees = {n.tree for n in enumerate_networks(Params())}
-    bad = core_functions()
+    n_in = params.max_inputs
+    core_trees = {n.tree for n in enumerate_networks(Params())} if n_in <= 6 else set()
+    bad = core_functions() if n_in <= 6 else set()
     stats = Counter()
     netlists = []
-    for net in enumerate_networks(PARAMS):
-        if net.n_inputs != 6:
+    for net in (nets if nets is not None else enumerate_networks(params)):
+        if net.n_inputs != n_in or net.n_devices < min_devices:
+            continue
+        if max(depth(net.tree), depth(net.tree, dual=True)) < min_stack:
             continue
         if net.tree in core_trees:
             stats["core"] += 1
             continue
         cell = build_cell(net, SIZING)
-        if (6, canonical_fn(int(out_function_hex(cell), 16), 6)) in bad:
+        if bad and (6, canonical_fn(int(out_function_hex(cell), 16), 6)) in bad:
             stats["dropped_core_function"] += 1
             continue
         netlists.append(cell_json(cell, SIZING))
     stats["candidates"] = len(netlists)
+    if limit and len(netlists) > limit:
+        key = lambda nl: hashlib.sha256(f"cellgym-pick:{nl['id']}".encode()).hexdigest()
+        netlists = sorted(netlists, key=key)[:limit]
+        stats["kept_after_limit"] = len(netlists)
     if jobs > 1:
         with ProcessPoolExecutor(jobs) as ex:
             results = list(ex.map(_label, netlists, chunksize=4))
@@ -98,19 +133,20 @@ def build(out: Path, jobs: int) -> dict:
             stats["unlabeled"] += 1
             continue
         nl = by_id[cid]
-        if len(nl["inputs"]) != 6:
+        if len(nl["inputs"]) != n_in:
             raise RuntimeError(f"unexpected cell {cid}")
         (out / "cells" / f"{cid}.json").write_text(json.dumps(nl, indent=1) + "\n", newline="\n")
         (out / "plans" / f"{cid}.plan").write_text(plan["plan"], newline="\n")
-        index[cid] = {"part": part_of(cid), "w_euler_nm": round(plan["width_um"] * 1000),
+        index[cid] = {"part": part_of(cid, n_in), "w_euler_nm": round(plan["width_um"] * 1000),
                       "sites": plan["sites"], "breaks": plan["breaks"],
                       "n_devices": nl["n_devices"], "pdn_depth": nl["pdn_depth"],
                       "pun_depth": nl["pun_depth"]}
     (out / "index.json").write_text(json.dumps(index, indent=1, sort_keys=True) + "\n", newline="\n")
-    manifest = {"params": PARAMS.__dict__, "stats": dict(stats), "route_failures": dict(fails),
+    manifest = {"params": params.__dict__ | {"min_devices": min_devices, "min_stack": min_stack}, "stats": dict(stats), "route_failures": dict(fails),
                 "cells": len(index), "by_part": dict(Counter(v["part"] for v in index.values())),
                 "by_devices": dict(sorted(Counter(v["n_devices"] for v in index.values()).items())),
-                "leak_check": "no core tree, no core function (any split), all 6 inputs",
+                "leak_check": ("no core tree, no core function (any split), all 6 inputs" if n_in == 6
+                               else f"all {n_in} inputs; the core has none"),
                 "seconds": round(time.time() - t0, 1)}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", newline="\n")
     return manifest
@@ -140,7 +176,7 @@ def renamed_val() -> tuple[dict[str, dict], dict[str, int]]:
 
 
 def evaluate(ckpt: Path, cells: dict, w: dict, k: int, temperature: float, seed: int = 0,
-             device: str = "cuda") -> dict:
+             device: str = "cuda", save_plans: Path | None = None, pos_shift: int = 0) -> dict:
     import torch
     from cellgym.synth import model as M
     from cellgym.synth import tokens as T
@@ -148,10 +184,36 @@ def evaluate(ckpt: Path, cells: dict, w: dict, k: int, temperature: float, seed:
     from cellgym.synth.eval import MAX_NEW, score_samples
     torch.manual_seed(seed)
     model = M.load(ckpt, device)
+    if pos_shift:   # probe: same tokens, positions moved up by pos_shift (absolute position embeddings)
+        fwd = model.forward
+        model.forward = lambda idx, caches=None, start=0, pos=None, mask=None: fwd(
+            idx, caches, start=start + pos_shift, pos=None if pos is None else pos + pos_shift, mask=mask)
     samples = {c: sample_constrained(model, T.ids(T.encode_netlist(nl, model.cfg.prompt)), nl, n=k,
                                      temperature=temperature, max_new=MAX_NEW)
                for c, nl in cells.items()}
-    return score_samples(cells, samples, w_euler=w, split_of={c: "set" for c in cells})
+    res = score_samples(cells, samples, w_euler=w, split_of={c: "set" for c in cells})
+    if save_plans:
+        save_best_plans(res, cells, samples, Path(save_plans))
+    return res
+
+
+def save_best_plans(res: dict, cells: dict, samples: dict, out: Path) -> int:
+    """Write the narrowest passing sample of each cell as <out>/plans/<id>.plan (plus its netlist
+    in <out>/cells/), for cellgym.viewer.static. Returns the number of cells written."""
+    from cellgym.synth.eval import decode_ids
+    NL = chr(10)
+    (out / "plans").mkdir(parents=True, exist_ok=True)
+    (out / "cells").mkdir(parents=True, exist_ok=True)
+    n = 0
+    for c in res["cells"]:
+        ok = [(s["width_nm"], i) for i, s in enumerate(c["samples"]) if s["pass"]]
+        if not ok:
+            continue
+        i = min(ok)[1]
+        (out / "plans" / f"{c['id']}.plan").write_text(decode_ids(cells[c["id"]], samples[c["id"]][i]), newline=NL)
+        (out / "cells" / f"{c['id']}.json").write_text(json.dumps(cells[c["id"]], indent=1) + NL, newline=NL)
+        n += 1
+    return n
 
 
 def summary_line(res: dict) -> str:
@@ -168,6 +230,15 @@ def main(argv=None) -> int:
     b = sub.add_parser("build")
     b.add_argument("--out", type=Path, default=Path("out/ood6"))
     b.add_argument("--jobs", type=int, default=6)
+    b.add_argument("--inputs", type=int, default=6)
+    b.add_argument("--max-stack", type=int, default=PARAMS.max_stack)
+    b.add_argument("--extra", type=int, default=PARAMS.extra_devices)
+    b.add_argument("--max-devices", type=int, default=None, help="default inputs + 2")
+    b.add_argument("--limit", type=int, default=None)
+    b.add_argument("--min-devices", type=int, default=0, help="per side")
+    b.add_argument("--min-stack", type=int, default=0, help="deepest of PDN/PUN")
+    b.add_argument("--sample", type=int, default=0,
+                   help="draw this many random networks with exactly --max-devices devices instead of enumerating")
     e = sub.add_parser("eval")
     e.add_argument("--ckpt", type=Path, required=True)
     e.add_argument("--set", type=Path, default=Path("out/ood6"))
@@ -175,15 +246,29 @@ def main(argv=None) -> int:
     e.add_argument("--rename", action="store_true", help="renamed benchmark val cells instead")
     e.add_argument("--k", type=int, default=8)
     e.add_argument("--temperature", type=float, default=0.8)
+    e.add_argument("--shift", type=int, default=0,
+                   help="rename input i to letter i+SHIFT (6 = 6-input cells use G-L)")
     e.add_argument("--tag", default=None)
+    e.add_argument("--pos-shift", type=int, default=0,
+                   help="probe: add this to every position id (tests position vs. size effects)")
+    e.add_argument("--save-plans", type=Path, default=None,
+                   help="write each solved cell's narrowest passing plan here (for cellgym.viewer.static)")
     a = ap.parse_args(argv)
     if a.cmd == "build":
-        m = build(a.out, a.jobs)
+        prm = Params(max_inputs=a.inputs, max_stack=a.max_stack, extra_devices=a.extra,
+                     max_devices=a.max_devices or a.inputs + 2)
+        nets = (sample_networks(a.inputs, prm.max_devices, a.max_stack, a.sample) if a.sample else None)
+        m = build(a.out, a.jobs, prm, a.limit, a.min_devices, a.min_stack, nets)
         print(json.dumps(m, indent=1))
         return 0
     cells, w = renamed_val() if a.rename else load(a.set, a.part)
-    res = evaluate(a.ckpt, cells, w, a.k, a.temperature)
-    tag = a.tag or ("renamed_val" if a.rename else f"ood6_{a.part}")
+    if a.shift:
+        from cellgym.synth import tokens as T
+        from cellgym.synth.train import relabel_netlist
+        cells = {c: relabel_netlist(nl, {x: T.INPUTS[a.shift + i] for i, x in enumerate(nl["inputs"])})
+                 for c, nl in cells.items()}
+    res = evaluate(a.ckpt, cells, w, a.k, a.temperature, save_plans=a.save_plans, pos_shift=a.pos_shift)
+    tag = a.tag or (("renamed_val" if a.rename else f"ood6_{a.part}") + (f"_shift{a.shift}" if a.shift else ""))
     res |= {"ckpt": str(a.ckpt), "k": a.k, "temperature": a.temperature}
     path = a.ckpt.parent / f"eval_{tag}_k{a.k}.json"
     path.write_text(json.dumps(res, indent=1) + "\n", newline="\n")

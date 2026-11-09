@@ -68,3 +68,33 @@ def test_rename_nets_changes_only_internal_net_names():
     assert f"route {p_new} met1 p1 pmos:0" in out_plan          # track p1 untouched
     assert [d["gate"] for d in out_nl["devices"]] == ["A", "B", "A", "B"]
     assert nl["devices"][0]["source"] == "n1"                   # input not mutated
+
+
+def test_extended_letters_are_appended_and_reachable():
+    n_ext = len(T.INPUTS_EXT)
+    tail = T.INPUTS_EXT + T.WIDTHS_STACK5 + T.WIDTHS_STACK6                        # appended after every older token
+    assert T.VOCAB[-len(tail):] == tail
+    assert T.INPUTS == list("ABCDEFGHIJKL")
+    from cellgym.synth.train import letter_map
+    rng = random.Random(0)
+    hit = set()
+    for _ in range(200):
+        hit |= set(letter_map(5, rng).values())
+    assert {T.TOKEN_ID[c] for c in T.INPUTS_EXT} <= hit
+
+
+def test_old_checkpoint_grows_vocab(tmp_path):
+    import torch
+    from dataclasses import asdict
+    from cellgym.synth import model as M
+    old = len(T.VOCAB) - len(T.INPUTS_EXT) - len(T.WIDTHS_STACK5) - len(T.WIDTHS_STACK6)
+    cfg = M.Config(vocab=old, d_model=32, layers=1, heads=2, max_len=64)
+    torch.manual_seed(0)
+    small = M.GPT(cfg)
+    torch.save({"state": small.state_dict(), "config": asdict(cfg)}, tmp_path / "ck.pt")
+    m = M.load(tmp_path / "ck.pt")
+    assert m.cfg.vocab == len(T.VOCAB) and m.tok.weight.shape[0] == len(T.VOCAB)
+    assert torch.equal(m.tok.weight[:old], small.tok.weight)
+    assert m.head.weight is m.tok.weight
+    new = m.tok.weight[old:]
+    assert not torch.isnan(new).any() and len({tuple(r.tolist()) for r in new}) == len(new)

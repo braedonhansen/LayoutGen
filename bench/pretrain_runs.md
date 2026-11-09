@@ -179,6 +179,160 @@ moves every device line) took 6-input cells from 0% to 42% per sample with no 6-
 variable (internal nets) was not a bottleneck. Remaining errors are about chain consistency, which GRPO can
 now work on: 122 of 167 ood6 dev cells give mixed groups at k=8.
 
+### run5 zero-shot on test_ood (scored once, before any 6-input RL)
+
+| test_ood (172 cells; constrained) | pretrain run2 | rl/run2 best | **pretrain run5** |
+|---|---|---|---|
+| per-sample pass (k=8, T=0.8) | 0.8% | 1.2% | **54.1%** |
+| pass@8 | 2.3% | 2.9% | **86.0%** |
+| greedy pass | - | - | **66.3%** |
+
+By input count: the 160 six-input cells 56.9% per sample / 88.7% pass@8; the 12 anchors (3-4 inputs,
+e.g. NOT MAJ3) 12.5-28%. No 6-input cell was trained on; the run was chosen on ood6 dev (stack-4 cells),
+never on test_ood.
+
+### rl/ood_run0: GRPO on 6-input cells
+
+`python -m cellgym.rl.grpo --ckpt out/synth5/run5/best.pt --out out/rl/ood_run0 --steps 500
+--synth out/synth5/plans.jsonl --ood6 out/ood6 --ood6-frac 0.5 --bf16 --jobs 3 --kl-clamp 3
+--eval-every 25 --eval-k 8`: half the groups from the 801 ood6 pool cells, half from benchmark train +
+synthetic <=5-input cells; best.pt by ood6 dev (167 cells, unconstrained k=8 + greedy), benchmark val
+logged alongside. Step 0: ood6 dev 37.3% per sample / 77.2% pass@8 / 51.5% greedy; val 65.8%. ~14 s/step.
+(`--jobs 6` died with MemoryError: every scoring worker imports torch.)
+
+Best ood6 dev at step 475: 71.3% per sample / 92.2% pass@8 / 74.9% greedy (unconstrained); val 79.2%.
+Final eval of `out/rl/ood_run0/best.pt`, scored once (constrained; k=8 T=0.8 and greedy):
+
+| split | per-sample | pass@8 | greedy | vs run5 zero-shot (per-sample / pass@8 / greedy) |
+|---|---|---|---|---|
+| test_ood (172) | **72.4%** | **91.9%** | **77.3%** | 54.1% / 86.0% / 66.3% |
+| test_id (25) | 67.0% | 96% | 76% | - |
+| val (15) | 85.8% | 100% | 86.7% | - |
+| ood6 dev (167, constrained) | 70.4% | 92.8% | - | 41.6% / 80.8% |
+
+### Input letters G-L (vocab 209 -> 211 incl. stack-5 widths; ids of older tokens unchanged)
+Letters G-L are appended to the vocab; old checkpoints grow their embedding on load (new letter rows =
+mean of A-F + noise). Relabeling now draws from A-L. Reference plans renamed onto G-L pass the scorer
+(20/20), so only the model has to learn the names.
+
+- ood_run0 on ood6 dev renamed onto G-L (`devset eval --shift 6`): 0% (never seen those letters).
+- ft_al = ood_run0 + 1000 SL steps on the <=5-input corpus, `--relabel 0.5 --lr 1e-4` (97 s on a 4090):
+  G-L 6.5% per sample / 29.9% pass@8, but A-F ood6 dev fell 70.4% -> 45.4%: SL on <=5 inputs undoes
+  the 6-input RL gains.
+- ft_al2 = ood_run0 + 4000 SL steps, `--relabel 0.9 --lr 3e-4 --warmup 100` (7 min on a 4090):
+  ood6 dev A-F 48.2% / 88.6% pass@8, renamed onto G-L 38.5% / 80.8%. Letters are now interchangeable;
+  6-input skill is back near run5 level (SL on <=5 inputs again pulled it back).
+
+### Zero-shot on more OOD axes (constrained, k=8 T=0.8; dev parts only)
+Sets (`python -m cellgym.synth.devset build ...`; none overlaps the corpus envelope of <=5 inputs,
+stack <=4, <=9 devices per side):
+- ood7: 7 inputs, stack <=4, 7-9 devices/side (1200 of 4694 candidates, hash-picked; dev 205). Lengths
+  288-424 tokens (ood6 max 379).
+- ood8: 8 inputs, stack <=4, 8-9 devices/side (700 of 1812; dev 120). Lengths 329-422.
+- oodstack5: 5 inputs, deepest stack exactly 5, <=9 devices/side (401 routable of 592; dev 75). Needs
+  width tokens w2.1 / w3.15 (vocab appended).
+- adder: the two logic stages of a mirror full adder as single cells: carry = NOT MAJ3 (3 inputs,
+  5 devices/side) and sum = P(S(P(A,B,C),D),S(A,B,C)) (4 inputs incl. the inverted carry, 7/side, PUN
+  stack 4).
+
+| dev set | run5 (pretrain) | ood_run0 (RL on 6) | ft_al2 (A-L) |
+|---|---|---|---|
+| ood7 (205) | 0.0% / 0.0% | 0.1% / 0.5% | **3.7% / 16.1%** |
+| ood8 (120) | 0.0% / 0.0% | 0.0% / 0.0% | 0.5% / 3.3% |
+| adder stages (2) | 68.8% / 2 of 2 | 75.0% / 2 of 2 | 68.8% / 2 of 2 |
+(per-sample / pass@8)
+
+7 and 8 inputs need letters G/H: run5 and ood_run0 never saw them, so 0% is the vocabulary wall,
+not a layout failure. With the letters learned (ft_al2), 7 inputs is at 16% pass@8: enough mixed
+groups to RL on. 8 inputs (two steps out) is barely above zero.
+
+Stack 5 with the new width rows set three ways (`cellgym/synth/widthedit.py`):
+
+| oodstack5 dev (75) | mean (generic init) | nearest (copy w1.68 / w2.52) | extrapolate (2e(last) - e(prev)) |
+|---|---|---|---|
+| ood_run0 | 6.7% / 16.0% | 5.7% / 18.7% | 5.2% / 16.0% |
+| ft_al2 | 4.3% / 16.0% | 3.5% / 17.3% | 3.5% / 14.7% |
+
+### rl/ood67_run0: GRPO on 6 + 7 inputs from ft_al2
+`out/ood67` = ood6 + ood7 (pool 1796, dev 372). `--ckpt out/synth5/ft_al2/best.pt --steps 400
+--ood6 out/ood67 --ood6-frac 0.6 --jobs 12` on an RTX 4090 pod. Combined dev 23.0% / 43.8% / 29.8%
+(step 0) -> 63.4% / 83.6% / 66.4% (best, step 400; still rising). Val 73% -> 73%.
+
+Scored once (constrained, k=8 T=0.8; greedy):
+
+| split | per-sample | pass@8 | greedy |
+|---|---|---|---|
+| test_ood (172) | 73.4% | 91.3% | 79.7% |
+| test_id (25) | 81.5% | 92% | 80% |
+| val (15) | 74.2% | 86.7% | 80% |
+
+Every axis (dev parts; probe-only sets: all cells), per-sample / pass@8:
+
+| set (cells) | run5 | ood_run0 | ft_al2 | **ood67_run0** |
+|---|---|---|---|---|
+| ood6 dev (167) | 41.6 / 80.8 | 70.4 / 92.8 | 48.2 / 88.6 | 70.3 / 86.8 |
+| ood7 dev (205) | 0 / 0 | 0.1 / 0.5 | 3.7 / 16.1 | **44.5 / 60.5** |
+| ood8 dev (120), never trained | 0 / 0 | 0 / 0 | 0.5 / 3.3 | **31.5 / 54.2** |
+| ood9 (200), 9 inputs 10/side | - | - | 0 / 0 | 0 / 0 |
+| ood10 (145), 10 inputs 10/side | - | - | 0 / 0 | 0 / 0 |
+| oodstack5 dev (75) | - | 6.7 / 16.0 | 4.3 / 16.0 | 7.5 / 21.3 |
+| oodstack6 (174) | 1.7 / 6.9 | 5.0 / 13.8 | 2.9 / 12.6 | 4.0 / 12.6 |
+| ooddev10 dev (87), 5 inputs 10/side | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| ooddev11 dev (19) | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| ooddev12 (15) | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| adder stages (2) | 68.8 / 2 of 2 | 75.0 / 2 of 2 | 68.8 / 2 of 2 | 50.0 / 1 of 2 |
+
+ood9/ood10/ooddev10-12 are built with the random sampler (`devset build --sample N`); the exhaustive
+enumerator does not finish for 10+ devices. All sequences fit in 512 tokens (ood9 411-465,
+ooddev10 415-464, ooddev11 454-505).
+
+Where it fails: every sample on a 10+ device-per-side cell is `device-missing` -- the plan stops
+one gate column short. Training never had more than 9 gates per row, and those cells are also the
+first ones longer than ~425 tokens, so "count past 9" and "positions past ~425" are confounded;
+the position-shift probe below separates them.
+
+Position probe (`devset eval --pos-shift N`: same tokens, every position id + N): ood67_run0 on
+ood7 dev 44.5% -> 0.0% (+30) -> 0.0% (+60); ood8 dev 31.5% -> 0.0% -> 0.0%. The model is tied to
+absolute positions; a shift of 30 is enough to break it. This does not by itself prove the 10-device
+wall is positional, but absolute learned positions are the most fragile part of the architecture:
+the next scaling step should use relative (rotary) positions and train lengths past 512.
+
+### rl/oodsd_run0: second axis (stack 5 + 10 devices/side) from ood67_run0
+`out/oodsd` = oodstack5 + ooddev10 (dev 162). 300 steps, same settings. Combined dev 3.2% / 9.3%
+(step 0) -> 11.0% / 19.1% (best, step 300). Scored once:
+
+| set | ood67_run0 | oodsd_run0 |
+|---|---|---|
+| oodstack5 dev (trained) | 7.5 / 21.3 | **16.5 / 30.7** |
+| oodstack6 (never trained) | 4.0 / 12.6 | 5.5 / 16.1 |
+| ooddev10 dev (trained) | 0 / 0 | 0 / 0 |
+| ooddev11, ooddev12, ood9 | 0 / 0 | 0 / 0 |
+| ood7 dev / ood8 dev | 44.5 / 60.5, 31.5 / 54.2 | 45.1 / 60.0, 32.3 / 50.0 |
+| test_ood (172) | 73.4 / 91.3 | **77.7 / 94.2** |
+| test_id (25) / val (15) | 81.5 / 92, 74.2 / 86.7 | 74.5 / 88, 73.3 / 86.7 |
+
+RL grows an axis only where zero-shot pass rate is above zero: 10-device groups are all-fail, so they
+give no gradient and stay at 0%.
+
+### Cost: search vs verification (`out/pod/search_vs_verify.json`; 10 cells per size, 1 CPU core)
+
+| devices/side | Euler reference search | verify one plan | ratio |
+|---|---|---|---|
+| 6 | 25 ms | 6.3 ms | 4x |
+| 7 | 57 ms | 9.3 ms | 6x |
+| 8 | 189 ms | 11.7 ms | 16x |
+| 9 | 369 ms | 13.4 ms | 28x |
+| 10 | 6.67 s | 15.6 ms | 427x |
+| 11 | 27.8 s | 18.7 ms | 1488x |
+
+Model sampling on the 4090: 5.9 s per 128 samples (46 ms each, batched); scoring in the RL loop 800-1300
+plans/s with 12 workers. Of ood67_run0's 65 solved 8-input dev cells, the narrowest is 0.89x the width
+of the single Euler reference plan (the reference is one optimal-sequence placement, not a proven optimum).
+
+The width edit makes no difference: widths appear only in the prompt and the width embeddings are
+nearly orthogonal (cosines 0.02-0.18), so there is no direction to extend. The hard part of stack 5
+is the deeper series chain itself; zero-shot sits at ~16% pass@8 (RL-able, like 7 inputs).
+
 ## Status / open
 - Bigger selection set: hold out synthetic topologies (not renames) as a few-hundred-cell selection
   split, so best.pt is not chosen on 15 cells.

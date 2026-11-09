@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import torch
 
@@ -109,3 +110,30 @@ def test_cli_val_eval_writes_best(tmp_path):
     evals = [r for r in rows if r.get("eval") == "val"]
     assert [r["step"] for r in evals] == [0, 1, 2] and evals[0]["best"]
     assert (tmp_path / "o" / "best.pt").exists()
+
+
+def test_cli_ood6_pool_and_dev_selection(tmp_path):
+    import shutil
+    import pytest
+    src = Path("out/ood6")
+    if not (src / "index.json").exists():
+        pytest.skip("needs out/ood6 (python -m cellgym.synth.devset build)")
+    index = json.loads((src / "index.json").read_text())
+    pick = {p: next(c for c, v in sorted(index.items()) if v["part"] == p) for p in ("pool", "dev")}
+    d = tmp_path / "ood6"
+    (d / "cells").mkdir(parents=True)
+    for c in pick.values():
+        shutil.copy(src / "cells" / f"{c}.json", d / "cells" / f"{c}.json")
+    (d / "index.json").write_text(json.dumps({c: index[c] for c in pick.values()}))
+    model = tiny()
+    ck = tmp_path / "t.pt"
+    M.save(model, model.cfg, ck)
+    rc = grpo.main(["--ckpt", str(ck), "--out", str(tmp_path / "o"), "--steps", "1", "--groups", "2",
+                    "--group-size", "2", "--max-new", "20", "--jobs", "1", "--device", "cpu",
+                    "--eval-every", "1", "--eval-k", "2", "--ood6", str(d), "--ood6-frac", "0.9"])
+    assert rc == 0
+    rows = [json.loads(x) for x in (tmp_path / "o" / "log.jsonl").read_text().splitlines()]
+    dev = [r for r in rows if r.get("eval") == "ood6_dev"]
+    val = [r for r in rows if r.get("eval") == "val"]
+    assert [r["step"] for r in dev] == [0, 1] and [r["step"] for r in val] == [0, 1]
+    assert dev[0]["best"] and not any(r["best"] for r in val)

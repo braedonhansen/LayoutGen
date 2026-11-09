@@ -113,9 +113,36 @@ def save(model: GPT, cfg: Config, path) -> None:
 
 def load(path, device="cpu") -> GPT:
     ck = torch.load(path, map_location=device, weights_only=True)
-    model = GPT(Config(**ck["config"]))
-    model.load_state_dict(ck["state"])
+    cfg = Config(**ck["config"])
+    state = ck["state"]
+    if cfg.vocab < len(T.VOCAB):
+        state = grow_vocab(state, cfg.vocab, len(T.VOCAB))
+        cfg.vocab = len(T.VOCAB)
+    model = GPT(cfg)
+    model.load_state_dict(state)
     return model.to(device).eval()
+
+
+def grow_vocab(state: dict, old: int, new: int, seed: int = 0) -> dict:
+    """Extend a checkpoint trained on the first `old` vocab ids to `new` ids.
+
+    Tokens are only ever appended, so existing rows keep their meaning. New input letters
+    (G-L) start at the mean of A-F's embeddings plus noise of the same spread, so each is
+    distinct but none is favored; anything else new starts at the mean of all rows.
+    """
+    state = dict(state)
+    w = state["tok.weight"]
+    g = torch.Generator().manual_seed(seed)
+    core = torch.tensor([T.TOKEN_ID[c] for c in T.INPUTS_CORE])
+    letters, rest = w[core], w[:old]
+    rows = []
+    for i in range(old, new):
+        src = letters if T.VOCAB[i] in T.INPUTS_EXT else rest
+        noise = torch.randn(w.shape[1], generator=g).to(w) * (src - src.mean(0)).std(0)
+        rows.append(src.mean(0) + noise)
+    state["tok.weight"] = torch.cat([w, torch.stack(rows)])
+    state["head.weight"] = state["tok.weight"]
+    return state
 
 
 # -- sampling ------------------------------------------------------------------------------

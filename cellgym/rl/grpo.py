@@ -238,14 +238,31 @@ def main(argv=None) -> int:
     ap.add_argument("--weighting", choices=["uniform", "bucket"], default="uniform",
                     help="bucket: draw cells by (inputs, devices) in benchmark-train proportions")
     ap.add_argument("--uniform-mix", type=float, default=0.1)
+    ap.add_argument("--ood6", type=Path, default=None,
+                    help="cellgym.synth.devset dir: train also on its `pool` cells, select best.pt on its `dev` cells")
+    ap.add_argument("--ood6-frac", type=float, default=0.5, help="share of drawn groups from the ood6 pool")
     a = ap.parse_args(argv)
+    if a.ood6 and a.weighting != "uniform":
+        ap.error("--ood6 sets its own draw weights; use --weighting uniform")
 
     device = a.device or ("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(a.seed)
     env = make_env("train", a.synth, cells_dir=a.cells)
+    if a.ood6:
+        from cellgym.synth.devset import load as load_set
+        pool, pool_w = load_set(a.ood6, "pool")
+        clash = sorted(set(pool) & set(env.cells))
+        if clash:
+            raise ValueError(f"ood6 pool cells already in the env: {clash[:3]}")
+        env.cells.update(pool)
+        env.w_euler.update(pool_w)
     sampler = CellSampler(env, seed=a.seed)
     if a.weighting == "bucket":
         sampler.set_weights(CellSampler.bucket_weights(env, "train", a.uniform_mix))
+    if a.ood6:
+        n_o, n_b = len(pool), len(env.cells) - len(pool)
+        sampler.set_weights({c: (a.ood6_frac / n_o if c in pool else (1 - a.ood6_frac) / n_b)
+                             for c in env.ids()})
     model = M.load(a.ckpt, device)
     env.prompt_fmt = model.cfg.prompt
     ref = None
@@ -256,24 +273,34 @@ def main(argv=None) -> int:
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.0)
     a.out.mkdir(parents=True, exist_ok=True)
     print(f"{len(env.cells)} training cells, device {device}, params {model.n_params():,}", flush=True)
-    val_env, best = None, None
+    val_env, best, checks = None, None, []
     if a.eval_every:
         val_env = make_env("val", cells_dir=a.cells, allow_heldout=True)
-        val_env.prompt_fmt = model.cfg.prompt
+        checks.append(("val", val_env))
+        if a.ood6:
+            dev, dev_w = load_set(a.ood6, "dev")
+            checks.insert(0, ("ood6_dev", PlanEnv(dev, dev_w, split_of={}, allow_heldout=True)))
+        for _, e in checks:
+            e.prompt_fmt = model.cfg.prompt
 
     def val_check(step, log):
+        """Every check env is scored; the first (ood6 dev if given, else val) picks best.pt."""
         nonlocal best
-        torch.manual_seed(10_000 + step)
-        v = evaluate_env(model, val_env, a.eval_k, 0.8, a.max_new, a.jobs, a.sample_chunk)
-        key = (v["val_sample_pass"], v["val_greedy_pass"])
-        is_best = best is None or key > best
-        if is_best:
-            best = key
-            M.save(model, model.cfg, a.out / "best.pt")
-        log.write(json.dumps({"step": step, "eval": "val", **v, "best": is_best}) + "\n")
-        log.flush()
-        print(f"val step {step} sample {v['val_sample_pass']:.3f} pass@{a.eval_k} {v['val_pass_at_k']:.3f} "
-              f"greedy {v['val_greedy_pass']:.3f}{' *best' if is_best else ''}", flush=True)
+        for i, (name, e) in enumerate(checks):
+            torch.manual_seed(10_000 + step)
+            v = evaluate_env(model, e, a.eval_k, 0.8, a.max_new, a.jobs, a.sample_chunk)
+            is_best = False
+            if i == 0:
+                key = (v["val_sample_pass"], v["val_greedy_pass"])
+                is_best = best is None or key > best
+                if is_best:
+                    best = key
+                    M.save(model, model.cfg, a.out / "best.pt")
+            log.write(json.dumps({"step": step, "eval": name, **v, "best": is_best}) + "\n")
+            log.flush()
+            print(f"{name} step {step} sample {v['val_sample_pass']:.3f} pass@{a.eval_k} "
+                  f"{v['val_pass_at_k']:.3f} greedy {v['val_greedy_pass']:.3f}{' *best' if is_best else ''}",
+                  flush=True)
         torch.manual_seed(a.seed + step)
 
     with open(a.out / "log.jsonl", "a") as log:
@@ -294,8 +321,8 @@ def main(argv=None) -> int:
             if val_env is not None and (step % a.eval_every == 0 or step == a.steps):
                 val_check(step, log)
     env.close()
-    if val_env is not None:
-        val_env.close()
+    for _, e in checks:
+        e.close()
     return 0
 
 

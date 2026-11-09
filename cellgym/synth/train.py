@@ -79,7 +79,7 @@ INPUT_IDS = [T.TOKEN_ID[c] for c in T.INPUTS]
 
 
 def letter_map(n_used: int, rng: random.Random) -> dict[int, int]:
-    """Order-preserving rename of inputs A.. (n_used of them) onto a random subset of A-F.
+    """Order-preserving rename of inputs A.. (n_used of them) onto a random subset of A-L.
 
     Only names change: the i-th input stays the i-th input (so the `in` line stays sorted
     and the truth-table bit order is unchanged); devices, nets, widths and the plan's
@@ -227,6 +227,11 @@ def train(a) -> dict:
         amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         scaler = torch.amp.GradScaler() if amp_dtype is torch.float16 else None
 
+    init = None
+    if getattr(a, "init", None):
+        from cellgym.synth.model import load
+        init = load(a.init)
+        a.prompt = init.cfg.prompt              # fine-tune in the format the model was trained on
     records = load_records(a.data)
     tr_tops, va_tops = split_topologies([r["topology_id"] for r in records], a.val_frac)
     vs = set(va_tops)
@@ -237,7 +242,11 @@ def train(a) -> dict:
 
     cfg = Config(d_model=a.d_model, layers=a.layers, heads=a.heads, max_len=a.max_len, dropout=a.dropout,
                  prompt=a.prompt)
-    model = GPT(cfg).to(device)
+    if init is not None:
+        cfg = init.cfg
+        model = init.to(device).train()
+    else:
+        model = GPT(cfg).to(device)
     decay = [p for p in model.parameters() if p.dim() >= 2]
     nodecay = [p for p in model.parameters() if p.dim() < 2]
     opt = torch.optim.AdamW([{"params": decay, "weight_decay": a.wd},
@@ -331,8 +340,10 @@ def parse(argv=None):
                     help="fraction of training sequences whose internal nets are renamed (rename_nets)")
     ap.add_argument("--relabel", type=float, default=0.0,
                     help="fraction of training sequences whose input letters are renamed onto a "
-                         "random subset of A-F (letter_map; val stays canonical)")
+                         "random subset of A-L (letter_map; val stays canonical)")
     ap.add_argument("--prompt", default="v1", choices=T.PROMPT_FORMATS, help="prompt format (tokens.encode_netlist)")
+    ap.add_argument("--init", default=None,
+                    help="start from this checkpoint (fine-tune); its shape and prompt format win")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     return ap.parse_args(argv)

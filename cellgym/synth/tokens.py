@@ -27,7 +27,11 @@ from pathlib import Path
 from cellgym.baselines.common import outputs_of
 
 SPECIAL = ["<pad>", "<bos>", "<sep>", "<eos>", "\n"]
-INPUTS = list("ABCDEF")
+INPUTS_CORE = list("ABCDEF")
+INPUTS_EXT = list("GHIJKL")                     # appended last so earlier ids stay stable
+INPUTS = INPUTS_CORE + INPUTS_EXT                # input names in order
+WIDTHS_STACK5 = ["w2.1", "w3.15"]                # appended last; never in the training corpus
+WIDTHS_STACK6 = ["w3.78"]                        # pmos 6 x 0.63 (nmos 6 x 0.42 = w2.52 already exists)
 MAX_NUM = 127                                   # column indexes
 NETS = ["OUT", "VDD", "VSS", "-"] + [f"{k}{i}" for k in "np" for i in range(1, 17)]
 TRACKS = ["c0", "c1", "c2"] + [f"{k}{i}" for k in "np" for i in range(0, 17)]
@@ -36,8 +40,8 @@ WORDS = ["in", "n", "p", "col", "g", "sd", "n=", "p=", "*", "gate:", "nmos:", "p
          "route", "pin", "li1", "met1"]
 WIDTHS_STACK4 = ["w1.68", "w2.52"]               # appended last so earlier ids stay stable
 VOCAB: list[str] = list(dict.fromkeys(
-    SPECIAL + WORDS + INPUTS + NETS + TRACKS + WIDTHS + [str(i) for i in range(MAX_NUM + 1)]
-    + WIDTHS_STACK4))
+    SPECIAL + WORDS + INPUTS_CORE + NETS + TRACKS + WIDTHS + [str(i) for i in range(MAX_NUM + 1)]
+    + WIDTHS_STACK4 + INPUTS_EXT + WIDTHS_STACK5 + WIDTHS_STACK6))
 TOKEN_ID = {t: i for i, t in enumerate(VOCAB)}
 PAD, BOS, SEP, EOS, NL = (TOKEN_ID[t] for t in SPECIAL)
 
