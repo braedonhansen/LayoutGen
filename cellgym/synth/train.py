@@ -79,7 +79,7 @@ INPUT_IDS = [T.TOKEN_ID[c] for c in T.INPUTS]
 
 
 def letter_map(n_used: int, rng: random.Random) -> dict[int, int]:
-    """Order-preserving rename of inputs A.. (n_used of them) onto a random subset of A-L.
+    """Order-preserving rename of inputs A.. (n_used of them) onto a random subset of A-P.
 
     Only names change: the i-th input stays the i-th input (so the `in` line stays sorted
     and the truth-table bit order is unchanged); devices, nets, widths and the plan's
@@ -241,7 +241,7 @@ def train(a) -> dict:
     val_ex = [make_example(*encode_record(r, a.prompt)) for r in records if r["topology_id"] in vs]
 
     cfg = Config(d_model=a.d_model, layers=a.layers, heads=a.heads, max_len=a.max_len, dropout=a.dropout,
-                 prompt=a.prompt)
+                 prompt=a.prompt, pos=a.pos, num_embed=a.num_embed)
     if init is not None:
         cfg = init.cfg
         model = init.to(device).train()
@@ -326,6 +326,9 @@ def parse(argv=None):
     ap.add_argument("--layers", type=int, default=10)
     ap.add_argument("--heads", type=int, default=8)
     ap.add_argument("--max-len", type=int, default=512)
+    ap.add_argument("--pos", default="learned", choices=["learned", "rope"], help="position scheme")
+    ap.add_argument("--num-embed", action="store_true",
+                    help="value-based embeddings for column numbers and widths (model.ValueEmbed)")
     ap.add_argument("--dropout", type=float, default=0.0)
     ap.add_argument("--steps", type=int, default=2000, help="optimizer steps (batch x accum sequences each)")
     ap.add_argument("--batch", type=int, default=16, help="micro-batch sequences")
@@ -340,7 +343,7 @@ def parse(argv=None):
                     help="fraction of training sequences whose internal nets are renamed (rename_nets)")
     ap.add_argument("--relabel", type=float, default=0.0,
                     help="fraction of training sequences whose input letters are renamed onto a "
-                         "random subset of A-L (letter_map; val stays canonical)")
+                         "random subset of A-P (letter_map; val stays canonical)")
     ap.add_argument("--prompt", default="v1", choices=T.PROMPT_FORMATS, help="prompt format (tokens.encode_netlist)")
     ap.add_argument("--init", default=None,
                     help="start from this checkpoint (fine-tune); its shape and prompt format win")

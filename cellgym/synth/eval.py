@@ -29,7 +29,7 @@ from cellgym.bench.evaluate import evaluate
 from cellgym.bench.score import reward
 from cellgym.synth import tokens as T
 
-MAX_NEW = 320
+MAX_NEW = 640                   # capped per prompt by the model's max_len
 
 
 def decode_ids(netlist: dict, ids: list[int]) -> str:

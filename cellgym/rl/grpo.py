@@ -94,7 +94,7 @@ def _logps_per_sample(model, prompts, comps, micro_bs, amp):
 
 
 def rollout(model, env: PlanEnv, cell_ids: list[str], group_size: int, temperature: float = 1.0,
-            max_new: int = 320, sampler=None, jobs: int = 1, micro_bs: int = 16, amp: bool = False,
+            max_new: int = 640, sampler=None, jobs: int = 1, micro_bs: int = 16, amp: bool = False,
             sample_chunk: int = 32) -> Rollout:
     """sampler=None samples every (cell, sample) row in batches of sample_chunk across cells
     (model.sample_many); a sampler callable is called once per cell instead."""
@@ -151,7 +151,7 @@ def grpo_loss(model, ro: Rollout, adv: torch.Tensor, idx: list[int], ref_model=N
 
 
 def train_step(model, optimizer, env: PlanEnv, cell_ids: list[str], group_size: int, ref_model=None,
-               temperature: float = 1.0, max_new: int = 320, beta: float = 0.0, clip: float = 0.2,
+               temperature: float = 1.0, max_new: int = 640, beta: float = 0.0, clip: float = 0.2,
                micro_bs: int = 8, inner_epochs: int = 1, grad_clip: float = 1.0, sampler=None,
                jobs: int = 1, amp: bool = False, sample_chunk: int = 32, kl_clamp: float | None = None) -> dict:
     ro = rollout(model, env, cell_ids, group_size, temperature, max_new, sampler, jobs, micro_bs, amp,
@@ -193,7 +193,7 @@ def train_step(model, optimizer, env: PlanEnv, cell_ids: list[str], group_size: 
 
 
 @torch.no_grad()
-def evaluate_env(model, env: PlanEnv, k: int = 16, temperature: float = 0.8, max_new: int = 320,
+def evaluate_env(model, env: PlanEnv, k: int = 16, temperature: float = 0.8, max_new: int = 640,
                  jobs: int = 1, sample_chunk: int = 32) -> dict:
     """Held-out check during training: k sampled plans per cell plus one greedy plan, unconstrained,
     scored like training. Returns per-sample pass rate, pass@k and greedy pass rate."""
@@ -221,7 +221,7 @@ def main(argv=None) -> int:
     ap.add_argument("--beta", type=float, default=0.02, help="KL coefficient to the start checkpoint (0 = off)")
     ap.add_argument("--clip", type=float, default=0.2)
     ap.add_argument("--temperature", type=float, default=1.0)
-    ap.add_argument("--max-new", type=int, default=320)
+    ap.add_argument("--max-new", type=int, default=640)
     ap.add_argument("--micro-bs", type=int, default=8)
     ap.add_argument("--inner-epochs", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=4)

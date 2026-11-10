@@ -72,22 +72,22 @@ def test_rename_nets_changes_only_internal_net_names():
 
 def test_extended_letters_are_appended_and_reachable():
     n_ext = len(T.INPUTS_EXT)
-    tail = T.INPUTS_EXT + T.WIDTHS_STACK5 + T.WIDTHS_STACK6                        # appended after every older token
+    tail = T.INPUTS_EXT + T.WIDTHS_STACK5 + T.WIDTHS_STACK6 + T.INPUTS_EXT2         # appended after every older token
     assert T.VOCAB[-len(tail):] == tail
-    assert T.INPUTS == list("ABCDEFGHIJKL")
+    assert T.INPUTS == list("ABCDEFGHIJKLMNOP")
     from cellgym.synth.train import letter_map
     rng = random.Random(0)
     hit = set()
     for _ in range(200):
         hit |= set(letter_map(5, rng).values())
-    assert {T.TOKEN_ID[c] for c in T.INPUTS_EXT} <= hit
+    assert {T.TOKEN_ID[c] for c in T.INPUTS_EXT + T.INPUTS_EXT2} <= hit
 
 
 def test_old_checkpoint_grows_vocab(tmp_path):
     import torch
     from dataclasses import asdict
     from cellgym.synth import model as M
-    old = len(T.VOCAB) - len(T.INPUTS_EXT) - len(T.WIDTHS_STACK5) - len(T.WIDTHS_STACK6)
+    old = len(T.VOCAB) - len(T.INPUTS_EXT) - len(T.WIDTHS_STACK5) - len(T.WIDTHS_STACK6) - len(T.INPUTS_EXT2)
     cfg = M.Config(vocab=old, d_model=32, layers=1, heads=2, max_len=64)
     torch.manual_seed(0)
     small = M.GPT(cfg)

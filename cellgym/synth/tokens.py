@@ -29,7 +29,8 @@ from cellgym.baselines.common import outputs_of
 SPECIAL = ["<pad>", "<bos>", "<sep>", "<eos>", "\n"]
 INPUTS_CORE = list("ABCDEF")
 INPUTS_EXT = list("GHIJKL")                     # appended last so earlier ids stay stable
-INPUTS = INPUTS_CORE + INPUTS_EXT                # input names in order
+INPUTS_EXT2 = list("MNOP")                       # appended after the stack-5/6 widths
+INPUTS = INPUTS_CORE + INPUTS_EXT + INPUTS_EXT2  # input names in order
 WIDTHS_STACK5 = ["w2.1", "w3.15"]                # appended last; never in the training corpus
 WIDTHS_STACK6 = ["w3.78"]                        # pmos 6 x 0.63 (nmos 6 x 0.42 = w2.52 already exists)
 MAX_NUM = 127                                   # column indexes
@@ -41,9 +42,15 @@ WORDS = ["in", "n", "p", "col", "g", "sd", "n=", "p=", "*", "gate:", "nmos:", "p
 WIDTHS_STACK4 = ["w1.68", "w2.52"]               # appended last so earlier ids stay stable
 VOCAB: list[str] = list(dict.fromkeys(
     SPECIAL + WORDS + INPUTS_CORE + NETS + TRACKS + WIDTHS + [str(i) for i in range(MAX_NUM + 1)]
-    + WIDTHS_STACK4 + INPUTS_EXT + WIDTHS_STACK5 + WIDTHS_STACK6))
+    + WIDTHS_STACK4 + INPUTS_EXT + WIDTHS_STACK5 + WIDTHS_STACK6 + INPUTS_EXT2))
 TOKEN_ID = {t: i for i, t in enumerate(VOCAB)}
 PAD, BOS, SEP, EOS, NL = (TOKEN_ID[t] for t in SPECIAL)
+
+# Tokens that stand for a quantity, with that quantity (used by value embeddings, model.Config.num_embed):
+# column indexes by their number, transistor widths in units of 0.21 um (the gcd of 0.42 and 0.63).
+NUM_VALUES = {TOKEN_ID[str(i)]: float(i) for i in range(MAX_NUM + 1)}
+WIDTH_UNIT = 0.21
+WIDTH_VALUES = {TOKEN_ID[t]: round(float(t[1:]) / WIDTH_UNIT) for t in VOCAB if re.fullmatch(r"w\d+(\.\d+)?", t)}
 
 
 def ids(tokens: list[str]) -> list[int]:

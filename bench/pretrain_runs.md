@@ -340,3 +340,62 @@ is the deeper series chain itself; zero-shot sits at ~16% pass@8 (RL-able, like 
   on the ood6 pool (801 cells), choosing checkpoints on ood6 dev; test_ood scored once at the end.
 - RL knobs not yet tried: constrained sampler in rollouts; k1/k2 KL estimator.
 - Hold out some stack-4 topologies so Deep stays an OOD axis.
+
+## The 10-per-side wall, re-diagnosed (2026-11-08)
+
+Two checks on the "10 devices per side is 0% for every model" result:
+
+- **Generation budget.** `eval.MAX_NEW` was 320 and the constrained decoder forces a plan to close within
+  its budget; Euler plans for 10/11/12 per side are 292-341 / 319-370 / 348-383 target tokens. Raising the
+  budget to 480 (capped by max_len 512) changed nothing: oodsd_run0 and ood67_run0 still 0/696 on ooddev10
+  dev, 0/1600 on ood9. The default budget is now 640 everywhere (capped per prompt by max_len).
+- **Column numbers never seen.** The pretraining corpus never uses a column index above 19 (max col: 19
+  in 9,820 plans, nothing higher); every 10-per-side cell needs col 20+, and 8 of the 700 ood8 Euler plans
+  do too. Sampled 10-per-side plans mostly end cleanly (EOS) at col 18-19 with 9 of 10 gates: the model
+  writes the longest plan it has seen. Column numbers are separate tokens 0..127, so "20" is an untrained
+  embedding in that role, the same failure G-L letters had before relabeling.
+
+So the absolute-position probe (shift +30 -> 0%) is real, but the wall itself is most likely the column-
+number ceiling. Two pretrains to separate them, both `--relabel 0.9` over A-P, `--prompt noin`,
+`--max-len 1024`, 4000 steps on the synth5 corpus (<=5 inputs, <=9 per side), on a 4090:
+
+- synth7/ropeA: `--pos rope` (rotary positions, no absolute position embedding)
+- synth7/ropeB: ropeA + `--num-embed` (column numbers and widths embedded from their value through
+  sinusoidal features, model.ValueEmbed; shifting a value is a fixed rotation, so col 20 is "col 19 + 1"
+  the same way col 5 is "col 4 + 1", and w3.15 / w3.78 sit on the same curve as the trained widths)
+
+### synth7 results (zero-shot, pretrain only; constrained k=8 T=0.8, budget 640; per-sample / pass@8)
+
+| set | run5 (learned pos) | ropeA | ropeB (+num-embed) |
+|---|---|---|---|
+| val pass@1 / test_id pass@1 | - | 53.3 / 56.0 | **73.3 / 68.0** |
+| ood6 dev (167) | 41.6 / 80.8 | 32.4 / 71.9 | 24.0 / 67.7 |
+| ood7 dev (205) | 0 / 0 | **3.0 / 15.6** | 3.0 / 12.2 |
+| ood8 dev (120) | 0 / 0 | 0.4 / 2.5 | 0 / 0 |
+| oodstack5 dev (75) | - | 0.5 / 2.7 | **1.8 / 6.7** |
+| oodstack6 all (174) | - | 0 / 0 | 0.1 / 0.6 (1 pass) |
+| ooddev10 dev / ooddev11 dev / ooddev12 all | 0 | 0 | 0 |
+| ood9 all / ood10 all | 0 | 0 | 0 |
+| adder dev (2) | - | 93.8 / 100 | 50.0 / 100 |
+
+- Rotary positions remove the position dependence: `--pos-shift 30` on ood7 / ood8 gives identical scores
+  (ood67_run0 fell 44.5% -> 0%). Zero-shot 7 inputs goes 0 -> 3% / 16%, about what ft_al2 got with SL on A-L.
+- Value embeddings help in-distribution and on deeper stacks (the axis they target), cost on more inputs.
+- The wall holds in both: sampled 10-per-side plans still stop at col 17-21 (one ropeA sample reached 67)
+  and fail `device-missing`. A smooth number representation does not lift the length prior learned from
+  data, and with zero passing samples RL has no signal there.
+
+## Next steps (2026-11-09)
+
+1. **Decoder: no early close.** The constrained decoder knows the netlist; mask plan-closing / EOS while any
+   device is unplaced. A checkable constraint, not a hint. Re-run ooddev10 / ood9 zero-shot on ropeA and
+   ropeB; any passing sample gives GRPO a signal.
+2. **Data: columns past 19.** Add synthetic 10-12-per-side plans (Euler-generated, A-P relabeled) to a
+   small share of the SL corpus so col 20+ appear in training; hold out ooddev10/11/12 dev and ood9/10.
+3. **Pick the base** (ropeA vs ropeB) from 1-2, then GRPO stepwise: 6-7 inputs, then stack 5 + 10/side,
+   then test 11/12 per side, stack 6, 9-10 inputs zero-shot.
+4. **Read-once dev sets** as the default (108/120 ood8 dev cells repeat an input); report both splits.
+5. **Correct the write-ups**: report and portfolio attribute the wall to absolute positions; it is the
+   column/length ceiling (positions were a separate, now fixed, dependence).
+6. Pods: results pull + stop is part of every job script (synth7 pod sat idle ~11 h). Old pod 2wswp8tfjldciv
+   and glji7howwap4rw are stopped with disks billing; terminate on request.

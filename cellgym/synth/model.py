@@ -1,4 +1,10 @@
-"""Small decoder-only transformer for the plan language (pre-norm, learned positions).
+"""Small decoder-only transformer for the plan language (pre-norm).
+
+Positions are learned absolute embeddings (pos="learned", the original models) or rotary
+(pos="rope": relative, nothing tied to an absolute index). With num_embed, tokens that stand
+for a quantity (column numbers, transistor widths) get embeddings computed from their value
+through sinusoidal features, so a number never seen in training still sits next to its
+neighbours, and +1 is the same rotation everywhere.
 
     model = GPT(Config())                 # ~32M parameters at the defaults
     logits = model(idx)                   # (B, T, vocab)
@@ -27,6 +33,9 @@ class Config:
     max_len: int = 512
     dropout: float = 0.0
     prompt: str = "v1"          # tokens.encode_netlist format the model was trained on
+    pos: str = "learned"        # "learned" (absolute) or "rope" (rotary, relative)
+    rope_base: float = 10000.0
+    num_embed: bool = False     # value-based embeddings for column numbers and widths
 
 
 class Block(nn.Module):
@@ -40,11 +49,14 @@ class Block(nn.Module):
         self.out = nn.Linear(4 * c.d_model, c.d_model, bias=False)
         self.drop = nn.Dropout(c.dropout)
 
-    def forward(self, x, cache=None, mask=None):
+    def forward(self, x, cache=None, mask=None, rope=None):
         """cache: None (full causal pass) or a [k, v] pair of (B, H, S, D) tensors, extended in place.
-        mask: optional bool (B, 1, T, S) attention mask (True = attend); replaces the causal flag."""
+        mask: optional bool (B, 1, T, S) attention mask (True = attend); replaces the causal flag.
+        rope: optional (cos, sin), each (B or 1, 1, T, D/2), applied to q and k before caching."""
         B, T_, C = x.shape
         q, k, v = self.qkv(self.ln1(x)).view(B, T_, 3, self.h, C // self.h).permute(2, 0, 3, 1, 4)
+        if rope is not None:
+            q, k = _rotate(q, *rope), _rotate(k, *rope)
         if isinstance(cache, dict):          # preallocated: {"k": (B,H,L,D), "v": ..., "n": filled}
             n0 = cache["n"]
             cache["k"][:, :, n0:n0 + T_] = k
@@ -66,12 +78,38 @@ class Block(nn.Module):
         return x + self.drop(self.out(F.gelu(self.fc(self.ln2(x)))))
 
 
+def _rotate(x, cos, sin):
+    a, b = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2:]
+    return torch.cat([a * cos - b * sin, a * sin + b * cos], -1)
+
+
+class ValueEmbed(nn.Module):
+    """Embedding of a scalar value: a linear map of [sin(v w_i), cos(v w_i)] over geometric
+    frequencies. Shifting v by a constant rotates each (sin, cos) pair by a fixed angle, so
+    "next column" is one linear map wherever it happens, including past the training range."""
+
+    def __init__(self, d: int, n_freq: int = 32, min_period: float = 3.0, max_period: float = 1024.0):
+        super().__init__()
+        periods = torch.logspace(math.log10(min_period), math.log10(max_period), n_freq)
+        self.register_buffer("w", 2 * math.pi / periods, persistent=False)
+        self.proj = nn.Linear(2 * n_freq, d)
+        nn.init.normal_(self.proj.weight, 0.0, 0.02 / math.sqrt(n_freq))
+        nn.init.zeros_(self.proj.bias)
+
+    def forward(self, v):
+        a = v[:, None] * self.w[None]
+        return self.proj(torch.cat([a.sin(), a.cos()], -1))
+
+
 class GPT(nn.Module):
     def __init__(self, c: Config | None = None):
         super().__init__()
         self.cfg = c = c or Config()
         self.tok = nn.Embedding(c.vocab, c.d_model)
-        self.pos = nn.Embedding(c.max_len, c.d_model)
+        if c.pos == "learned":
+            self.pos = nn.Embedding(c.max_len, c.d_model)
+        elif c.pos != "rope":
+            raise ValueError(f"unknown position scheme {c.pos!r}")
         self.blocks = nn.ModuleList(Block(c) for _ in range(c.layers))
         self.ln = nn.LayerNorm(c.d_model)
         self.head = nn.Linear(c.d_model, c.vocab, bias=False)
@@ -80,6 +118,20 @@ class GPT(nn.Module):
         for b in self.blocks:                                    # scale residual projections
             for lin in (b.proj, b.out):
                 nn.init.normal_(lin.weight, 0.0, 0.02 / math.sqrt(2 * c.layers))
+        if c.num_embed:                                          # after self.apply(_init): own init
+            num, wid = ({k: v for k, v in d.items() if k < c.vocab} for d in (T.NUM_VALUES, T.WIDTH_VALUES))
+            self.num_embed, self.width_embed = ValueEmbed(c.d_model), ValueEmbed(c.d_model, n_freq=16)
+            for name, d in (("num", num), ("width", wid)):
+                self.register_buffer(f"{name}_ids", torch.tensor(list(d)), persistent=False)
+                self.register_buffer(f"{name}_vals", torch.tensor(list(d.values()), dtype=torch.float), persistent=False)
+
+    def table(self):
+        """(vocab, d) token embeddings (also the output head, tied): value rows computed when num_embed."""
+        w = self.tok.weight
+        if not self.cfg.num_embed:
+            return w
+        w = w.index_copy(0, self.num_ids, self.num_embed(self.num_vals).to(w.dtype))
+        return w.index_copy(0, self.width_ids, self.width_embed(self.width_vals).to(w.dtype))
 
     @staticmethod
     def _init(m):
@@ -99,10 +151,19 @@ class GPT(nn.Module):
             pos = torch.arange(start, start + T_, device=idx.device)
         elif int(pos.max()) >= self.cfg.max_len:
             raise ValueError(f"position {int(pos.max())} exceeds max_len {self.cfg.max_len}")
-        x = self.tok(idx) + self.pos(pos)
+        table = self.table()
+        x = F.embedding(idx, table)
+        rope = None
+        if self.cfg.pos == "learned":
+            x = x + self.pos(pos)
+        else:
+            hd = self.cfg.d_model // self.cfg.heads
+            inv = self.cfg.rope_base ** (-torch.arange(0, hd // 2, device=idx.device, dtype=torch.float) / (hd // 2))
+            ang = (pos if pos.dim() == 2 else pos[None]).float()[..., None] * inv     # (B|1, T, hd/2)
+            rope = (ang.cos()[:, None].to(x.dtype), ang.sin()[:, None].to(x.dtype))
         for i, b in enumerate(self.blocks):
-            x = b(x, None if caches is None else caches[i], mask)
-        return self.head(self.ln(x))
+            x = b(x, None if caches is None else caches[i], mask, rope)
+        return F.linear(self.ln(x), table)
 
 
 # -- checkpoints ---------------------------------------------------------------------------
@@ -137,7 +198,7 @@ def grow_vocab(state: dict, old: int, new: int, seed: int = 0) -> dict:
     letters, rest = w[core], w[:old]
     rows = []
     for i in range(old, new):
-        src = letters if T.VOCAB[i] in T.INPUTS_EXT else rest
+        src = letters if T.VOCAB[i] in T.INPUTS_EXT + T.INPUTS_EXT2 else rest
         noise = torch.randn(w.shape[1], generator=g).to(w) * (src - src.mean(0)).std(0)
         rows.append(src.mean(0) + noise)
     state["tok.weight"] = torch.cat([w, torch.stack(rows)])
@@ -149,7 +210,7 @@ def grow_vocab(state: dict, old: int, new: int, seed: int = 0) -> dict:
 
 @torch.no_grad()
 def sample(model: GPT, prompt_ids: list[int], n: int = 1, temperature: float = 1.0,
-           max_new: int = 320, top_k: int | None = None) -> list[list[int]]:
+           max_new: int = 640, top_k: int | None = None) -> list[list[int]]:
     """n continuations of the prompt, each cut at and including EOS (or max_new tokens).
 
     temperature 0 (or top_k 1) is greedy. Uses a KV cache; the n samples run as one batch.
@@ -188,7 +249,7 @@ def sample(model: GPT, prompt_ids: list[int], n: int = 1, temperature: float = 1
 
 
 @torch.no_grad()
-def sample_many(model: GPT, prompts: list[list[int]], temperature: float = 1.0, max_new: int = 320,
+def sample_many(model: GPT, prompts: list[list[int]], temperature: float = 1.0, max_new: int = 640,
                 top_k: int | None = None, chunk: int = 32) -> list[list[int]]:
     """One continuation per prompt (prompts may differ in length), batched `chunk` rows at a time.
 

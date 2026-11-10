@@ -176,7 +176,8 @@ def renamed_val() -> tuple[dict[str, dict], dict[str, int]]:
 
 
 def evaluate(ckpt: Path, cells: dict, w: dict, k: int, temperature: float, seed: int = 0,
-             device: str = "cuda", save_plans: Path | None = None, pos_shift: int = 0) -> dict:
+             device: str = "cuda", save_plans: Path | None = None, pos_shift: int = 0,
+             max_new: int | None = None) -> dict:
     import torch
     from cellgym.synth import model as M
     from cellgym.synth import tokens as T
@@ -189,7 +190,7 @@ def evaluate(ckpt: Path, cells: dict, w: dict, k: int, temperature: float, seed:
         model.forward = lambda idx, caches=None, start=0, pos=None, mask=None: fwd(
             idx, caches, start=start + pos_shift, pos=None if pos is None else pos + pos_shift, mask=mask)
     samples = {c: sample_constrained(model, T.ids(T.encode_netlist(nl, model.cfg.prompt)), nl, n=k,
-                                     temperature=temperature, max_new=MAX_NEW)
+                                     temperature=temperature, max_new=max_new or MAX_NEW)
                for c, nl in cells.items()}
     res = score_samples(cells, samples, w_euler=w, split_of={c: "set" for c in cells})
     if save_plans:
@@ -249,6 +250,7 @@ def main(argv=None) -> int:
     e.add_argument("--shift", type=int, default=0,
                    help="rename input i to letter i+SHIFT (6 = 6-input cells use G-L)")
     e.add_argument("--tag", default=None)
+    e.add_argument("--max-new", type=int, default=None, help="generation budget (default eval.MAX_NEW)")
     e.add_argument("--pos-shift", type=int, default=0,
                    help="probe: add this to every position id (tests position vs. size effects)")
     e.add_argument("--save-plans", type=Path, default=None,
@@ -267,7 +269,8 @@ def main(argv=None) -> int:
         from cellgym.synth.train import relabel_netlist
         cells = {c: relabel_netlist(nl, {x: T.INPUTS[a.shift + i] for i, x in enumerate(nl["inputs"])})
                  for c, nl in cells.items()}
-    res = evaluate(a.ckpt, cells, w, a.k, a.temperature, save_plans=a.save_plans, pos_shift=a.pos_shift)
+    res = evaluate(a.ckpt, cells, w, a.k, a.temperature, save_plans=a.save_plans, pos_shift=a.pos_shift,
+                   max_new=a.max_new)
     tag = a.tag or (("renamed_val" if a.rename else f"ood6_{a.part}") + (f"_shift{a.shift}" if a.shift else ""))
     res |= {"ckpt": str(a.ckpt), "k": a.k, "temperature": a.temperature}
     path = a.ckpt.parent / f"eval_{tag}_k{a.k}.json"

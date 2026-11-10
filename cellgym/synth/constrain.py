@@ -330,7 +330,7 @@ class PlanGrammar:
 # -- constrained sampling -------------------------------------------------------------------
 
 def sample_constrained(model, prompt_ids: list[int], netlist: dict, n: int = 1,
-                       temperature: float = 1.0, max_new: int = 320, top_k: int | None = None,
+                       temperature: float = 1.0, max_new: int = 640, top_k: int | None = None,
                        grammar: PlanGrammar | None = None) -> list[list[int]]:
     """Like model.sample, but every step's logits are masked to the grammar.
 
