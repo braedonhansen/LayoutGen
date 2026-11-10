@@ -127,8 +127,48 @@ def merge(base: Path, extra: Path, dup: int, out: Path) -> dict:
     return m
 
 
+def from_pools(sets: list[Path], out: Path) -> dict:
+    """Records from the `pool` parts of devset dirs (their Euler plans), dropping any pool cell
+    whose function (under renaming) equals a `dev` cell's of the same set or a benchmark
+    non-train cell's. The dev parts stay held out for measuring."""
+    bad = forbidden_functions(core_cells(), split_of(load_splits()))
+    records, stats = [], Counter()
+    for d in sets:
+        index = json.loads((d / "index.json").read_text())
+        nl_of = lambda c: json.loads((d / "cells" / f"{c}.json").read_text())
+        dev_fns = {_fn(nl_of(c)) for c, v in index.items() if v["part"] == "dev"}
+        for c, v in sorted(index.items()):
+            if v["part"] != "pool":
+                continue
+            nl = nl_of(c)
+            if _fn(nl) in dev_fns or _fn(nl) in bad:
+                stats[f"dropped_{d.name}"] += 1
+                continue
+            stats[f"kept_{d.name}"] += 1
+            records.append({"id": c, "plan_index": 0, "topology_id": c, "origin": f"pool:{d.name}",
+                            "n_inputs": len(nl["inputs"]), "n_devices": nl["n_devices"],
+                            "read_once": nl["read_once"], "function": nl["function"],
+                            "tree": nl["canonical_tree"], "netlist": nl,
+                            "plan": (d / "plans" / f"{c}.plan").read_text(),
+                            "width_um": v["w_euler_nm"] / 1000, "sites": v["sites"], "breaks": v["breaks"]})
+    out.mkdir(parents=True, exist_ok=True)
+    body = "".join(json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n" for r in records)
+    (out / "plans.jsonl").write_text(body, newline="\n")
+    m = {"sets": [str(s) for s in sets], "records": len(records), "stats": dict(stats),
+         "plans_sha256": hashlib.sha256(body.encode()).hexdigest()}
+    (out / "manifest.json").write_text(json.dumps(m, indent=2) + "\n", newline="\n")
+    return m
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "pools":
+        ap = argparse.ArgumentParser()
+        ap.add_argument("sets", type=Path, nargs="+")
+        ap.add_argument("--out", type=Path, required=True)
+        a = ap.parse_args(argv[1:])
+        print(json.dumps(from_pools(a.sets, a.out), indent=1))
+        return 0
     if argv and argv[0] == "merge":
         ap = argparse.ArgumentParser()
         ap.add_argument("base", type=Path)
