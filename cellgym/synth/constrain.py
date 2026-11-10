@@ -23,7 +23,11 @@ only offered once every input has a g column and some output has a contacted sd
 column (otherwise the plan could never be finished). <eos> is allowed only when
 every input and at least one output has a pin line.
 
-Not enforced: device coverage/matching, diffusion sharing consistency, which
+With cover=True (the default) the col phase cannot be left until every netlist device whose
+gate is an input is placed (an sd-g-sd triple with matching row nets), so a plan can no longer
+close early with a device missing.
+
+Not enforced: extra devices, diffusion sharing consistency, which
 net is contacted, track existence at the cell's height, route connectivity,
 overlaps, split gate columns (n=A p=B; opt in with split_gates=True), `st=`.
 """
@@ -69,14 +73,22 @@ class State:
 
 
 class PlanGrammar:
-    def __init__(self, netlist: dict, split_gates: bool = False):
+    def __init__(self, netlist: dict, split_gates: bool = False, cover: bool = True):
         self.inputs = [x for x in netlist["inputs"] if x in _ID]
         self.outputs = [x for x in outputs_of(netlist) if x in _ID]
         sd = {d[k] for d in netlist["devices"] for k in ("drain", "source")}
         self.sd_nets = sorted(x for x in sd if x in _ID)
         self.all_nets = sorted(set(self.sd_nets) | set(self.inputs) | set(self.outputs))
         self.split_gates = split_gates
+        self.cover = cover
+        want: dict = {}
+        for d in netlist["devices"]:
+            if d["gate"] in self.inputs and d["drain"] in _ID and d["source"] in _ID:
+                k = (1 if d["type"] == "nmos" else 2, d["gate"], frozenset((d["drain"], d["source"])))
+                want[k] = want.get(k, 0) + 1
+        self.want = want
         self._memo: dict = {}
+        self._cov: dict = {}
 
     # -- column queries ------------------------------------------------------------
     @staticmethod
@@ -90,8 +102,25 @@ class PlanGrammar:
         return [n for n in self.all_nets
                 if sum(len(self._elig(cols, n, k)) for k in ("gate", "nmos", "pmos")) >= 2]
 
+    def _covered(self, cols):
+        """Every wanted device appears as an sd-g-sd triple (rows 1 = nmos, 2 = pmos)."""
+        r = self._cov.get(cols)
+        if r is None:
+            have: dict = {}
+            for i in range(1, len(cols) - 1):
+                if cols[i][0] != "g" or cols[i - 1][0] != "sd" or cols[i + 1][0] != "sd":
+                    continue
+                for j in (1, 2):
+                    a, b = cols[i - 1][j], cols[i + 1][j]
+                    if a != "-" and b != "-":
+                        k = (j, cols[i][j], frozenset((a, b)))
+                        have[k] = have.get(k, 0) + 1
+            r = self._cov[cols] = all(have.get(k, 0) >= n for k, n in self.want.items())
+        return r
+
     def _can_leave(self, cols):
         return (bool(cols)
+                and (not self.cover or self._covered(cols))
                 and all(self._elig(cols, n, "gate") for n in self.inputs)
                 and any(self._elig(cols, n, k) for n in self.outputs for k in ("nmos", "pmos")))
 
@@ -331,7 +360,7 @@ class PlanGrammar:
 
 def sample_constrained(model, prompt_ids: list[int], netlist: dict, n: int = 1,
                        temperature: float = 1.0, max_new: int = 640, top_k: int | None = None,
-                       grammar: PlanGrammar | None = None) -> list[list[int]]:
+                       grammar: PlanGrammar | None = None, cover: bool = True) -> list[list[int]]:
     """Like model.sample, but every step's logits are masked to the grammar.
 
     Returns n lists of generated ids, cut at and including EOS (or max_new tokens).
@@ -339,7 +368,7 @@ def sample_constrained(model, prompt_ids: list[int], netlist: dict, n: int = 1,
     import torch
     import torch.nn.functional as F
 
-    g = grammar or PlanGrammar(netlist)
+    g = grammar or PlanGrammar(netlist, cover=cover)
     with torch.no_grad():
         was_training = model.training
         model.eval()

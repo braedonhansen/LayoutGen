@@ -144,3 +144,25 @@ def test_constrained_random_model_parses(cells):
     p = T.ids(T.encode_netlist(nl))
     a = sample_constrained(model, p, nl, temperature=0)
     assert a == sample_constrained(model, p, nl, temperature=0)
+
+
+def test_cover_blocks_early_close(cells):
+    """Cutting the col lines before the last gate column leaves a device unplaced: with
+    cover the plan cannot leave the col phase there; without it, it can."""
+    n = 0
+    for cid, nl in list(cells.items())[:80]:
+        if not (EULER / f"{cid}.plan").exists():
+            continue
+        lines = euler_plan(nl).splitlines()
+        cols = [l for l in lines if l.startswith("col ")]
+        last_g = max(i for i, l in enumerate(cols) if " g " in l)
+        prefix = T.ids(T.encode_plan("\n".join(cols[:last_g]) + "\n"))[:-1]   # drop <eos>
+        g_on, g_off = PlanGrammar(nl), PlanGrammar(nl, cover=False)
+        s_on, s_off = g_on.walk(prefix), g_off.walk(prefix)
+        assert s_on is not None and s_on.sub == "L"
+        assert T.TOKEN_ID["pin"] not in g_on.allowed_ids(s_on)
+        if g_off._can_leave(s_off.cols):
+            n += 1
+        full = T.ids(T.encode_plan("\n".join(cols) + "\n"))[:-1]
+        assert T.TOKEN_ID["pin"] in g_on.allowed_ids(g_on.walk(full))
+    assert n > 0

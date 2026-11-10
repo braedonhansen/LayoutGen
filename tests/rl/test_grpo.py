@@ -50,6 +50,8 @@ def test_pluggable_sampler_and_cli(tmp_path):
     model = tiny()
     ro = grpo.rollout(model, env, env.ids()[:1], 2, sampler=fixed)
     assert calls == [2] and ro.completions == [[5, 6, 3]] * 2
+    ro = grpo.rollout(model, env, env.ids()[:2], 2, max_new=200, sampler="constrained")
+    assert len(ro.completions) == 4 and all(ro.completions)
 
     ck = tmp_path / "t.pt"
     M.save(model, model.cfg, ck)

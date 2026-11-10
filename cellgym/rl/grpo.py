@@ -97,7 +97,9 @@ def rollout(model, env: PlanEnv, cell_ids: list[str], group_size: int, temperatu
             max_new: int = 640, sampler=None, jobs: int = 1, micro_bs: int = 16, amp: bool = False,
             sample_chunk: int = 32) -> Rollout:
     """sampler=None samples every (cell, sample) row in batches of sample_chunk across cells
-    (model.sample_many); a sampler callable is called once per cell instead."""
+    (model.sample_many); a sampler callable is called once per cell instead; sampler="constrained"
+    uses the grammar-constrained decoder (constrain.sample_constrained, device cover on) per cell.
+    Old log-probs are always the unmasked model's, so the ratio is unaffected by the mask."""
     t0 = time.time()
     cids, prompts, comps = [], [], []
     if sampler is None:
@@ -105,9 +107,16 @@ def rollout(model, env: PlanEnv, cell_ids: list[str], group_size: int, temperatu
         prompts = [env.prompt_ids(c) for c in cids]
         comps = [list(s) for s in M.sample_many(model, prompts, temperature, max_new, chunk=sample_chunk)]
     else:
+        if sampler == "constrained":
+            from cellgym.synth.constrain import sample_constrained
+
+            def sampler(model, p, n, temperature, max_new, _cid=None):
+                return sample_constrained(model, p, env.cells[_cid], n=n, temperature=temperature,
+                                          max_new=max_new)
         for cid in cell_ids:
             p = env.prompt_ids(cid)
-            for s in sampler(model, p, group_size, temperature, max_new):
+            kw = {"_cid": cid} if "_cid" in sampler.__code__.co_varnames else {}
+            for s in sampler(model, p, group_size, temperature, max_new, **kw):
                 cids.append(cid), prompts.append(p), comps.append(list(s))
     t1 = time.time()
     infos = env.reward_batch(cids, comps, jobs)
@@ -232,6 +241,8 @@ def main(argv=None) -> int:
     ap.add_argument("--device", default=None)
     ap.add_argument("--bf16", action="store_true")
     ap.add_argument("--save-every", type=int, default=50)
+    ap.add_argument("--constrained", action="store_true",
+                    help="sample rollouts with the grammar-constrained decoder (per cell; slower)")
     ap.add_argument("--kl-clamp", type=float, default=None, help="cap |ref - logp| per token in the KL term")
     ap.add_argument("--eval-every", type=int, default=0, help="val check every N steps (0 = off); best.pt by val")
     ap.add_argument("--eval-k", type=int, default=16)
@@ -309,7 +320,8 @@ def main(argv=None) -> int:
         for step in range(1, a.steps + 1):
             cids = sampler.next_groups(a.groups)
             m = train_step(model, opt, env, cids, a.group_size, ref, a.temperature, a.max_new, a.beta, a.clip,
-                           a.micro_bs, a.inner_epochs, jobs=a.jobs, amp=a.bf16, sample_chunk=a.sample_chunk,
+                           a.micro_bs, a.inner_epochs, sampler="constrained" if a.constrained else None,
+                           jobs=a.jobs, amp=a.bf16, sample_chunk=a.sample_chunk,
                            kl_clamp=a.kl_clamp)
             m["step"] = step
             log.write(json.dumps(m) + "\n")
