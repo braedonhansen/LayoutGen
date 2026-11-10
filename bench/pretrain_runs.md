@@ -399,3 +399,72 @@ number ceiling. Two pretrains to separate them, both `--relabel 0.9` over A-P, `
    column/length ceiling (positions were a separate, now fixed, dependence).
 6. Pods: results pull + stop is part of every job script (synth7 pod sat idle ~11 h). Old pod 2wswp8tfjldciv
    and glji7howwap4rw are stopped with disks billing; terminate on request.
+
+## synth8: decoder cover, columns past 19, first GRPO stage (2026-11-10)
+
+**Decoder cover** (`constrain.PlanGrammar(cover=True)`, now the default): the col phase cannot be left
+until every netlist device with an input gate appears as an sd-g-sd triple. Re-scoring synth7 with it
+changes nothing on 10+ per side (ooddev10/11/12, ood9/10 all 0): the model can no longer close early,
+so it keeps writing columns past 19 and drifts (col 67, gate after gate) until the budget runs out.
+The constraint is sound, but the model can't write a long row. `grpo --constrained` samples rollouts
+with this decoder (not used yet).
+
+**Data** (`cellgym/synth/wide.py`): sampled 10-12-per-side topologies at 4-5 inputs, stack <= 4, gave only
+49 plans (785 sampled, 730 dropped because ooddev10/11/12 already cover almost every 5-input function
+at that size; 11/12 per side route 28% / 15%). Added the ooddev10/11 **pool** cells (Euler plans), dropping
+any whose function equals a dev cell's (316 of 445 and 36 of 110 dropped): 252 wide plans in all,
+oversampled x6 into synth5 (32,696 records, ~5% wide). Dev parts and ooddev12 stay unseen.
+synth8/ropeA and ropeB = synth7's recipes on this corpus (4000 steps, `--relabel 0.9 --prompt noin
+--max-len 1024`, rope; ropeB `--num-embed`).
+
+**Base pick** (`out/synth8/pick_base.py`, rule fixed before the run: max sum of pass@8 on ood6/ood7/
+oodstack5/ooddev10 dev with val pass@1 >= 0.5): synth8/ropeB 1.040, synth8/ropeA 1.038, synth7/ropeA
+0.941, synth7/ropeB 0.828, so it's a tie between the synth8 pair.
+
+**rl/s8_ood67**: GRPO from synth8/ropeB, ood67 recipe (`--ood6 out/ood67 --ood6-frac 0.6 --synth
+out/synth5/plans.jsonl --bf16 --jobs 12 --kl-clamp 3 --eval-every 25 --eval-k 8`), 600 steps (~10 s/step).
+Combined ood67 dev (unconstrained) 2.0% / 7.0% / 3.0% at step 0 (the constrained score is far higher:
+the pretrain relies on the grammar) -> 43.2% / 60.8% / 48.7% at best (step 500), flat after ~450.
+
+Constrained k=8 T=0.8, cover on; per-sample / pass@8 (val/test_id row: pass@1):
+
+| set | synth7 ropeA (cover) | synth8 ropeA | synth8 ropeB | **rl/s8_ood67** | ood67_run0 (prior best) |
+|---|---|---|---|---|---|
+| val / test_id pass@1 | 66.7 / 56.0 | 73.3 / 32.0 | 73.3 / 64.0 | 80.0 / 76.0 | - |
+| ood6 dev (167) | 34.1 / 74.9 | 26.3 / 64.1 | 21.2 / 59.9 | 56.5 / 77.8 | 70.3 / 86.8 |
+| ood7 dev (205) | 3.7 / 16.6 | 4.6 / 17.6 | 5.2 / 19.0 | 35.1 / 56.1 | 44.5 / 60.5 |
+| ood8 dev (120), never trained | 0.2 / 1.7 | 1.8 / 8.3 | 0.8 / 2.5 | 12.5 / 20.0 | 31.5 / 54.2 |
+| oodstack5 dev (75) | 0.3 / 2.7 | 0.5 / 2.7 | 1.5 / 6.7 | 1.3 / 4.0 | 7.5 / 21.3 |
+| oodstack6 (174) | 0 / 0 | 0.1 / 1.1 | 0.1 / 0.6 | 0.1 / 1.1 | 4.0 / 12.6 |
+| **ooddev10 dev (87)** | 0 / 0 | **4.9 / 19.5** | 4.7 / 18.4 | 8.0 / 19.5 | 0 / 0 |
+| ooddev11 dev (19) | 0 / 0 | 0.7 / 5.3 (1 cell) | 0 / 0 | 0 / 0 | 0 / 0 |
+| ooddev12 (15), ood9 (200), ood10 (145) | 0 | 0 | 0 | 0 | 0 |
+| adder stages (2) | 93.8 / 2 of 2 | 68.8 / 2 of 2 | 75.0 / 2 of 2 | 87.5 / 2 of 2 | 50.0 / 1 of 2 |
+
+rl/s8_ood67 scored once on test: test_ood (172) 66.7% per sample / 90.7% pass@8 / 74.4% greedy;
+test_id (25) 64.0 / 88.0 / 68.0 (ood67_run0: test_ood 73.4 / 91.3 / 79.7).
+
+- **The 10-per-side wall was the data.** With ~250 wide cells in SL, ooddev10 dev goes 0 -> ~19% pass@8
+  zero-shot (both architectures). The first row ever passing at 10 per side means RL now has signal there.
+  11 per side is 1 cell; 12 per side and 9-10 inputs are still 0.
+- Stage-1 GRPO grew 6-8 inputs as before (ood7 5 -> 35% per sample, ood8 1 -> 12.5% untrained) but ends
+  below ood67_run0, which started from a much stronger ood6 base (ft_al2: 48 / 89 vs 21 / 60 here).
+  It did not grow 10 per side (no wide cells in its pool) and did not grow stack 5.
+- Read-once split (step 4): the dev sets are almost all repeated-input. ooddev10 dev has 0 of 87 read-once
+  cells, ood7 dev 2 of 205, ood8 dev 12 of 120. On ood8, s8_ood67 gets 25.0% pass@8 read-once (12 cells)
+  vs 19.4% repeated (108). Read-once dev sets need building from scratch; they can't be cut from these.
+
+## Next steps (2026-11-10)
+
+1. **Stage 2 GRPO: stack 5 + 10 per side** from rl/s8_ood67 on `out/oodsd` (oodstack5 + ooddev10 pools),
+   now that 10 per side starts above zero; try `--constrained` rollouts there (the unconstrained
+   step-0 score is ~0 on long rows).
+2. 6-8 inputs lag ood67_run0. Either a short SL refresh on A-P before RL (as ft_al2 did) or more stage-1
+   steps; check that the wide oversampling isn't what costs ood6 (synth8 ood6 26 / 64 vs synth7 34 / 75).
+3. 11-12 per side: still only ~75 training cells at 11 and 0 at 12. Get more from 4-input / stack-3
+   topologies or a cheaper labeler; 12 per side Euler search is ~2 min per cell.
+4. Build read-once dev sets (current ones are 0-10% read-once).
+5. Write-ups still attribute the wall to absolute positions; correct to "column / length ceiling in
+   the data" (confirmed here).
+6. Pods: new pod 86f89101cuzuy3 (EUR-IS-1) is stopped and holds every synth8/RL artifact. glji7howwap4rw
+   and 2wswp8tfjldciv are stopped; their hosts had no free GPU, so they couldn't restart.
