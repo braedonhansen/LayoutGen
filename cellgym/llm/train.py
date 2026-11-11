@@ -90,6 +90,7 @@ def main(argv=None) -> int:
     ap.add_argument("--max-len", type=int, default=3072)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--grad-ckpt", action="store_true")
+    ap.add_argument("--scratch", default=None, help="LAYERSxDIM: random init with --model's config/tokenizer, resized (control)")
     a = ap.parse_args(argv)
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -98,7 +99,16 @@ def main(argv=None) -> int:
     dev = "cuda"
     tok = AutoTokenizer.from_pretrained(a.model)
     pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
-    model = AutoModelForCausalLM.from_pretrained(a.model, torch_dtype=torch.float32, attn_implementation="sdpa").to(dev)
+    if a.scratch:
+        from transformers import AutoConfig
+        cfg = AutoConfig.from_pretrained(a.model)
+        L, d = (int(x) for x in a.scratch.split("x"))
+        cfg.update(dict(num_hidden_layers=L, hidden_size=d, intermediate_size=3 * d, num_attention_heads=d // 64,
+                        num_key_value_heads=max(1, d // 256), max_window_layers=L, layer_types=None))
+        model = AutoModelForCausalLM.from_config(cfg, torch_dtype=torch.float32, attn_implementation="sdpa").to(dev)
+        print(f"scratch model {L}x{d}: {sum(p.numel() for p in model.parameters()):,} params", flush=True)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(a.model, torch_dtype=torch.float32, attn_implementation="sdpa").to(dev)
     if a.grad_ckpt:
         model.gradient_checkpointing_enable()
     model.train()

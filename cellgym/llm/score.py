@@ -75,14 +75,18 @@ def main(argv=None) -> int:
         summ[s] = {"cells": len(cs), "samples": n, "sample_pass": len(ok) / n,
                    "pass_at_k": sum(any(st == "pass" for st, _ in v) for v in cs.values()) / len(cs),
                    "w_over_euler": sum(wrs) / len(wrs) if wrs else None,
+                   "best_of_k_w_over_euler": (lambda b: sum(b) / len(b) if b else None)(
+                       [min(wr for st, wr in v if st == "pass" and wr) for v in cs.values()
+                        if any(st == "pass" and wr for st, wr in v)]),
                    "stages": dict(stages[s].most_common(6))}
     out = a.samples.with_suffix(".summary.json")
     out.write_text(json.dumps(summ, indent=1) + "\n")
-    print(f"| set | cells | per-sample | pass@k | W/W_euler | top failure |")
+    print(f"| set | cells | per-sample | pass@k | W/W_euler | best-of-k W/W_euler | top failure |")
     for s, v in summ.items():
         top = next((f"{k} ({c})" for k, c in v["stages"].items() if k != "pass"), "-")
         we = f"{v['w_over_euler']:.3f}" if v["w_over_euler"] else "-"
-        print(f"| {s} | {v['cells']} | {100 * v['sample_pass']:.1f} | {100 * v['pass_at_k']:.1f} | {we} | {top} |")
+        bw = f"{v['best_of_k_w_over_euler']:.3f}" if v["best_of_k_w_over_euler"] else "-"
+        print(f"| {s} | {v['cells']} | {100 * v['sample_pass']:.1f} | {100 * v['pass_at_k']:.1f} | {we} | {bw} | {top} |")
     return 0
 
 
