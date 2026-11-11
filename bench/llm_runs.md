@@ -86,3 +86,39 @@ best-of-k = narrowest passing sample per cell)
 3. Routing as the next learned stage in the same step style (route one net per step from an
    environment state), since the router is now the failure point at 10+ per side and stack 5-6.
 4. Bigger probes (14-20 per side, 10-12 inputs) once built on CPU ahead of time.
+
+## Control, replicate and RL (2026-11-11, second pod, A40)
+
+**Trained on** (every model below): <= 5 inputs, <= 9 devices per side, stack <= 4. Supervised on Euler
+step decisions; the RL model adds group-relative policy-gradient RL on the same in-distribution cells
+(corpus TRAIN topologies; checkpoint chosen on corpus VAL topologies). **Tested on** sets never seen in SL
+or RL: 6-10 inputs, 10-12 devices per side, stack 5-6, and an 8-input / 14-per-side probe.
+
+Per-sample / pass@k (k=8; probe k=4), width = passing samples' W / W_euler (mean, best-of-k):
+
+| set | trained up to -> tested | scratch 102M, SL | Qwen 0.5B SL, seed 1 | **Qwen 0.5B SL + RL** |
+|---|---|---|---|---|
+| val / test_id | in distribution | 100 / 100, 1.23 / 1.06 | 100 / 100, 1.08 / 0.99 | 100 / 100, 1.065 / 1.004 |
+| ood6-8 dev | 5 -> 6-8 inputs | 100 / 100, 1.21 / 1.03 | 100 / 100, 1.08-1.10 / 1.01 | 100 / 100, 1.06-1.07 / 1.00-1.01 |
+| ood9 / ood10 | 5 -> 9 / 10 inputs | 100 / 100, 1.21 / 1.04 | 100 / 100, 1.09 / 1.01 | **100 / 100, 1.05-1.07 / 1.01** |
+| oodstack5 dev | stack 4 -> 5 | 72 / 100, 1.22 / 1.07 | 75 / 100, 1.13 / 1.03 | 81 / 97, 1.08 / 1.01 |
+| oodstack6 | stack 4 -> 6 | 84 / 100, 1.25 / 1.06 | 85 / 100, 1.11 / 1.02 | 87 / 100, 1.08 / 1.02 |
+| ooddev10 dev | 9 -> 10 per side | 49 / 98, 1.24 / 1.10 | 55 / 97, 1.12 / 1.04 | 59 / 94, 1.11 / 1.05 |
+| ooddev11 dev | 9 -> 11 per side | 28 / 79, 1.26 / 1.13 | 32 / 84, 1.16 / 1.10 | 42 / 90, 1.13 / 1.10 |
+| ooddev12 | 9 -> 12 per side | 20 / 73, 1.26 / 1.19 | 24 / 87, 1.15 / 1.12 | 33 / 73, 1.07 / 1.07 |
+| probe i8d14 (20) | 5 & 9 -> 8 inputs & 14 per side | 24 / 60 | 43 / 80 | 33 / 75 |
+| adder stages | composed cells | 94 / 100 | 94 / 100 | 88 / 100, best 0.99 |
+
+- **Pretraining is not what generalizes; the format is.** The scratch control (no pretraining) reaches the
+  same pass rates on every OOD axis. Pretraining buys placement quality: width 1.21-1.26x -> 1.08-1.16x per sample.
+- **Seed replicate** reproduces the first run (step05) within noise.
+- **RL** (80 steps x 32 cells x 8 placements, width reward, in-distribution cells only) moves width toward
+  Euler on every set, including the never-seen ones: per sample 1.08-1.10 -> 1.05-1.07 at 6-10 inputs,
+  1.13 -> 1.08 at stack 5-6. It also raises the per-sample pass rate at 10-12 per side (55/32/24 ->
+  59/42/33), because routable placements earn reward. Best-of-8 stays at or just above Euler
+  (1.00-1.01 at <= 10 inputs). Not under Euler on average yet. In-distribution val moved slowly (reward
+  0.731 -> 0.744): the reward varies little within a group, so more steps / higher lr is the next knob.
+- RL implementation note: the first attempt used full-vocabulary log-probs while sampling over legal
+  tokens; negative advantages pushed mass onto illegal tokens (log-prob drift of -2 nats in 40 steps,
+  no gain). Fixed by renormalizing over the legal-token set at each position (`rl.Policy._logps`).
+- Cost: A40 pod 4.9 h, about $2.90. Models saved locally: `out/llm/rl2_best`, `out/llm/step05s1_model`.
