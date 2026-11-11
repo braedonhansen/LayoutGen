@@ -80,7 +80,7 @@ class Policy:
         self.opt = torch.optim.AdamW(self.lm.model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.0)
 
     def rollout(self, nls, temperature):
-        """One placement per netlist; returns (status, cols, [(state, action_text)]) each."""
+        """One placement per netlist; returns (status, cols, [(state, action_text, legal_trie)]) each."""
         m = self.lm.model
         m.eval()
         jobs = [[F.Placer(nl), 4 * len(nl["devices"]) + 4, "run", []] for nl in nls]
@@ -99,12 +99,12 @@ class Policy:
                 tries.append(self.lm.trie([" " + F.col_text(c) for c in legal]))
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 res = self.lm.generate(prompts, temperature, 16, 1, tries)
-            for j, p, r in zip(live, prompts, res):
+            for j, p, r, tr in zip(live, prompts, res, tries):
                 c = F.parse_col(r[0])
                 if c is None or not j[0].step(c):
                     j[2] = "illegal"
                     continue
-                j[3].append((p, " " + F.col_text(c)))
+                j[3].append((p, " " + F.col_text(c), tr))
                 if j[0].done():
                     j[2] = "done"
                 elif len(j[0].cols) >= j[1]:
@@ -113,11 +113,17 @@ class Policy:
         return [(j[2], j[0].cols, j[3]) for j in jobs]
 
     def _logps(self, model, pairs):
-        tok, eos, pad = self.lm.tok, self.lm.tok.eos_token_id, self.lm.pad
-        seqs = []
-        for s, a in pairs:
+        """log p(action | state) under the sampling distribution: at every action token the
+        softmax is renormalized over the tokens the legal-move trie allows there."""
+        eos, pad = self.lm.tok.eos_token_id, self.lm.pad
+        seqs, allowed = [], []
+        for s, a, trie in pairs:
             p, t = self.lm.enc(s), self.lm.enc(a) + [eos]
             seqs.append((p, t))
+            node = trie
+            for tk in t:
+                allowed.append(list(node.keys()) or [eos])
+                node = node.get(tk, {})
         L = max(len(p) + len(t) for p, t in seqs)
         x = torch.full((len(seqs), L), pad, dtype=torch.long)
         att = torch.zeros_like(x)
@@ -129,19 +135,25 @@ class Policy:
             tgt[b, len(p) - 1:len(s) - 1] = torch.tensor(t)
         x, att, tgt = x.cuda(), att.cuda(), tgt.cuda()
         m = tgt != -100
+        K = max(map(len, allowed))
+        idx = torch.full((len(allowed), K), -1, dtype=torch.long)
+        for i, al in enumerate(allowed):
+            idx[i, :len(al)] = torch.tensor(al)
+        idx = idx.cuda()
         with torch.autocast("cuda", dtype=torch.bfloat16):
             h = model.model(input_ids=x, attention_mask=att).last_hidden_state
-            logits = model.lm_head(h[m]).float()          # target positions only
-        g = torch.log_softmax(logits, -1).gather(-1, tgt[m][:, None])[:, 0]
+            logits = model.lm_head(h[m]).float()          # target positions only, row-major = allowed order
+        sub = logits.gather(-1, idx.clamp_min(0)).masked_fill(idx < 0, float("-inf"))
+        g = logits.gather(-1, tgt[m][:, None])[:, 0] - torch.logsumexp(sub, -1)
         row = torch.arange(len(seqs), device=x.device)[:, None].expand_as(m)[m]
         return torch.zeros(len(seqs), device=x.device).index_add(0, row, g)   # per pair
 
-    def update(self, episodes, micro=256):
+    def update(self, episodes, micro=48):
         """episodes: [(advantage, [(state, action)])]; one gradient step."""
         pairs, w = [], []
         for adv, steps in episodes:
-            for s, a in steps:
-                pairs.append((s, a))
+            for s, a, tr in steps:
+                pairs.append((s, a, tr))
                 w.append(adv / len(steps))
         n_ep = max(1, len(episodes))
         tot, kl_sum = 0.0, 0.0
@@ -156,7 +168,8 @@ class Policy:
                 loss = loss + self.beta * (kl ** 2).sum() / max(1, len(pairs)) * 0.5
                 kl_sum += float(kl.detach().sum())
             loss.backward()
-            tot += float(loss)
+            tot += float(loss.detach())
+            del lp, loss
         torch.nn.utils.clip_grad_norm_(self.lm.model.parameters(), 1.0)
         self.opt.step()
         self.opt.zero_grad(set_to_none=True)
@@ -230,6 +243,7 @@ def main(argv=None) -> int:
             ids = rng.sample(train, a.cells)
             nls = [allc[c][0] for c in ids for _ in range(a.group)]
             ro = pol.rollout(nls, a.temperature)
+            torch.cuda.empty_cache()
             t1 = time.time()
             jobs = [(allc[c][0], cols, allc[c][1]) for c, (_, cols, _) in zip([c for c in ids for _ in range(a.group)], ro)]
             res = list(pool.map(_route_score, jobs, chunksize=2))
