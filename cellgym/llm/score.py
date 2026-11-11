@@ -56,9 +56,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("samples", type=Path)
     ap.add_argument("--jobs", type=int, default=14)
+    ap.add_argument("--extra", nargs="*", default=[], help="name=dir:part, as given to infer")
     a = ap.parse_args(argv)
     rows = [json.loads(l) for l in a.samples.read_text().splitlines()]
-    sets = load_sets(sorted({r["set"] for r in rows}))
+    extra = [tuple(x.split("=", 1)) for x in a.extra]
+    sets = load_sets(sorted({r["set"] for r in rows}), extra)
     with ProcessPoolExecutor(a.jobs, initializer=_init, initargs=(sets,)) as ex:
         res = list(ex.map(_score, rows, chunksize=8))
     per = defaultdict(lambda: defaultdict(list))
@@ -67,7 +69,8 @@ def main(argv=None) -> int:
         per[s][c].append((st, wr))
         stages[s][st] += 1
     summ = {}
-    for s in [x for x, _ in __import__("cellgym.llm.infer", fromlist=["SETS"]).SETS if x in per]:
+    order = [x for x, _ in __import__("cellgym.llm.infer", fromlist=["SETS"]).SETS] + [n for n, _ in extra]
+    for s in [x for x in order if x in per]:
         cs = per[s]
         n = sum(len(v) for v in cs.values())
         ok = [wr for v in cs.values() for st, wr in v if st == "pass"]

@@ -195,9 +195,11 @@ def main(argv=None) -> int:
     ap.add_argument("--max-tokens", type=int, default=2048)
     ap.add_argument("--batch", type=int, default=384, help="sequences per generate call")
     ap.add_argument("--sets", nargs="*", default=None)
+    ap.add_argument("--extra", nargs="*", default=[], help="name=dir:part devset-style sets (only these if given)")
     a = ap.parse_args(argv)
     t0 = time.time()
-    sets = load_sets(a.sets)
+    extra = [tuple(x.split("=", 1)) for x in a.extra]
+    sets = load_sets(a.sets or ([n for n, _ in extra] if extra else None), extra)
     lm = None if a.mode == "random" else LM(a.model, a.batch)
     if a.mode == "oneshot":
         run_oneshot(lm, sets, a.k, a.temperature, a.max_tokens, a.out)
