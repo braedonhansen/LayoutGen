@@ -1,12 +1,11 @@
-"""Sample plans from a fine-tuned LM with vLLM, for every evaluation set (scored by cellgym.llm.score).
+"""Sample plans from a fine-tuned LM (HF generate), for every evaluation set (scored by cellgym.llm.score).
 
     python -m cellgym.llm.infer --model out/llm/step05/model --mode step --out out/llm/step05/samples.jsonl [--k 8]
 
 mode oneshot: k samples of the whole plan body per cell.
 mode step:    k independent placements per cell; each step the model sees Placer.state() and its
-              continuation is restricted to Placer.legal() (vLLM guided choice; if this vLLM has no
-              guided decoding, sample and retry up to --retries times, an illegal column ends the
-              sample). The environment stops a placement when every device is placed and the last
+              continuation is restricted to Placer.legal() (generate with a token trie of the
+              legal columns, so sampling is renormalized over legal moves only). The environment stops a placement when every device is placed and the last
               column is sd, or after 4 x devices + 4 columns.
 Output: one json line per (set, cell, sample): oneshot -> "text" (plan body); step -> "cols".
 """
@@ -59,21 +58,82 @@ def _w_nm(v):
     return v["width_nm"] if isinstance(v, dict) else v
 
 
-def _guided(choices, temperature, max_tokens):
-    from vllm import SamplingParams
-    try:
-        from vllm.sampling_params import StructuredOutputsParams
-        return SamplingParams(temperature=temperature, max_tokens=max_tokens,
-                              structured_outputs=StructuredOutputsParams(choice=choices))
-    except ImportError:
-        from vllm.sampling_params import GuidedDecodingParams
-        return SamplingParams(temperature=temperature, max_tokens=max_tokens,
-                              guided_decoding=GuidedDecodingParams(choice=choices))
+class LM:
+    """HF model wrapper: batched sampling, optionally restricted to a set of continuations."""
+
+    def __init__(self, path, batch=384):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.torch = torch
+        self.tok = AutoTokenizer.from_pretrained(path)
+        self.tok.padding_side = "left"
+        self.pad = self.tok.pad_token_id if self.tok.pad_token_id is not None else self.tok.eos_token_id
+        self.model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16).cuda().eval()
+        self.batch = batch
+        self._enc = {}
+
+    def enc(self, s):
+        r = self._enc.get(s)
+        if r is None:
+            r = self._enc[s] = self.tok(s, add_special_tokens=False)["input_ids"]
+        return r
+
+    def _gen(self, prompts, temperature, max_new, allowed=None, n=1):
+        torch = self.torch
+        ids = [self.enc(p) for p in prompts]
+        L = max(map(len, ids))
+        x = torch.full((len(ids), L), self.pad, dtype=torch.long)
+        att = torch.zeros_like(x)
+        for i, s in enumerate(ids):
+            x[i, L - len(s):] = torch.tensor(s)
+            att[i, L - len(s):] = 1
+        kw = dict(max_new_tokens=max_new, pad_token_id=self.pad, eos_token_id=self.tok.eos_token_id,
+                  num_return_sequences=n)
+        kw.update(do_sample=True, temperature=temperature, top_k=0, top_p=1.0) if temperature > 0 else kw.update(do_sample=False)
+        if allowed is not None:
+            eos = self.tok.eos_token_id
+
+            def fn(b, sent):
+                trie = allowed[b // n]
+                node = trie
+                for t in sent[L:].tolist():
+                    if t == eos or t == self.pad:
+                        return [eos]
+                    node = node.get(t)
+                    if node is None:
+                        return [eos]
+                return list(node.keys()) or [eos]
+            kw["prefix_allowed_tokens_fn"] = fn
+        with torch.no_grad():
+            out = self.model.generate(input_ids=x.cuda(), attention_mask=att.cuda(), **kw)
+        return [self.tok.decode([t for t in o[L:].tolist() if t not in (self.pad, self.tok.eos_token_id)])
+                for o in out]
+
+    def generate(self, prompts, temperature, max_new, n=1, allowed=None):
+        res = []
+        bs = max(1, self.batch // n)
+        order = sorted(range(len(prompts)), key=lambda i: len(prompts[i]))
+        out = [None] * len(prompts)
+        for c in range(0, len(order), bs):
+            idx = order[c:c + bs]
+            g = self._gen([prompts[i] for i in idx], temperature, max_new,
+                          None if allowed is None else [allowed[i] for i in idx], n)
+            for j, i in enumerate(idx):
+                out[i] = g[j * n:(j + 1) * n]
+        return out
+
+    def trie(self, options):
+        root = {}
+        eos = self.tok.eos_token_id
+        for o in options:
+            node = root
+            for t in self.enc(o) + [eos]:
+                node = node.setdefault(t, {})
+        return root
 
 
-def run_step(llm, sets, k, temperature, retries, guided, out):
-    from vllm import SamplingParams
-    jobs = []      # (set, cid, sample, placer)
+def run_step(lm, sets, k, temperature, out):
+    jobs = []      # [set, cid, sample, placer, cap, status]
     for s, (cells, _) in sets.items():
         for cid, nl in cells.items():
             for j in range(k):
@@ -84,40 +144,25 @@ def run_step(llm, sets, k, temperature, retries, guided, out):
         if not act:
             break
         rounds += 1
-        if guided:
-            prompts, params = [], []
-            for jb in act:
-                legal = jb[3].legal()
-                if not legal:
-                    jb[5] = "stuck"
-                    continue
-                prompts.append(jb[3].state())
-                params.append(_guided([" " + F.col_text(c) for c in legal], temperature, 16))
-            live = [jb for jb in act if jb[5] == "run"]
-            res = llm.generate(prompts, params, use_tqdm=False) if prompts else []
-            for jb, r in zip(live, res):
-                c = F.parse_col(r.outputs[0].text)
-                if c is None or not jb[3].step(c):
-                    jb[5] = "illegal"
-        else:
-            sp = SamplingParams(temperature=temperature, max_tokens=16, stop=["\n"], n=1)
-            pending = list(act)
-            for _ in range(retries + 1):
-                if not pending:
-                    break
-                res = llm.generate([jb[3].state() for jb in pending], sp, use_tqdm=False)
-                nxt = []
-                for jb, r in zip(pending, res):
-                    c = F.parse_col(r.outputs[0].text)
-                    if c is None or not jb[3].step(c):
-                        nxt.append(jb)
-                pending = nxt
-            for jb in pending:
-                jb[5] = "illegal"
+        live, prompts, tries = [], [], []
         for jb in act:
-            if jb[5] != "run":
+            legal = jb[3].legal()
+            if not legal:
+                jb[5] = "stuck"
                 continue
-            if jb[3].done():
+            live.append(jb)
+            prompts.append(jb[3].state())
+            tries.append(None if lm is None else lm.trie([" " + F.col_text(c) for c in legal]))
+        if lm is None:          # baseline: uniform over legal moves
+            res = [[" " + F.col_text(__import__("random").Random(hash((jb[1], jb[2], len(jb[3].cols)))).choice(jb[3].legal()))]
+                   for jb in live]
+        else:
+            res = lm.generate(prompts, temperature, 16, 1, tries) if prompts else []
+        for jb, r in zip(live, res):
+            c = F.parse_col(r[0])
+            if c is None or not jb[3].step(c):
+                jb[5] = "illegal"
+            elif jb[3].done():
                 jb[5] = "done"
             elif len(jb[3].cols) >= jb[4]:
                 jb[5] = "cap"
@@ -127,51 +172,37 @@ def run_step(llm, sets, k, temperature, retries, guided, out):
             f.write(json.dumps({"set": s, "cell": cid, "sample": j, "status": st, "cols": p.cols}) + "\n")
 
 
-def run_oneshot(llm, sets, k, temperature, max_tokens, out):
-    from vllm import SamplingParams
-    sp = SamplingParams(temperature=temperature, max_tokens=max_tokens, n=k)
+def run_oneshot(lm, sets, k, temperature, max_tokens, out):
     keys, prompts = [], []
     for s, (cells, _) in sets.items():
         for cid, nl in cells.items():
             keys.append((s, cid))
             prompts.append(F.oneshot_prompt(nl))
-    res = llm.generate(prompts, sp)
+    res = lm.generate(prompts, temperature, max_tokens, n=k)
     with open(out, "w") as f:
         for (s, cid), r in zip(keys, res):
-            for j, o in enumerate(r.outputs):
-                f.write(json.dumps({"set": s, "cell": cid, "sample": j, "status": o.finish_reason,
-                                    "text": o.text}) + "\n")
+            for j, o in enumerate(r):
+                f.write(json.dumps({"set": s, "cell": cid, "sample": j, "status": "gen", "text": o}) + "\n")
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", required=True)
-    ap.add_argument("--mode", choices=["oneshot", "step"], required=True)
+    ap.add_argument("--model", default=None)
+    ap.add_argument("--mode", choices=["oneshot", "step", "random"], required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--k", type=int, default=8)
     ap.add_argument("--temperature", type=float, default=0.7)
-    ap.add_argument("--retries", type=int, default=3)
-    ap.add_argument("--no-guided", action="store_true")
-    ap.add_argument("--max-tokens", type=int, default=3072)
+    ap.add_argument("--max-tokens", type=int, default=2048)
+    ap.add_argument("--batch", type=int, default=384, help="sequences per generate call")
     ap.add_argument("--sets", nargs="*", default=None)
-    ap.add_argument("--gpu-mem", type=float, default=0.85)
     a = ap.parse_args(argv)
-    from vllm import LLM
     t0 = time.time()
     sets = load_sets(a.sets)
-    llm = LLM(model=a.model, dtype="bfloat16", gpu_memory_utilization=a.gpu_mem, max_model_len=4096,
-              enable_prefix_caching=True, seed=0)
+    lm = None if a.mode == "random" else LM(a.model, a.batch)
     if a.mode == "oneshot":
-        run_oneshot(llm, sets, a.k, a.temperature, a.max_tokens, a.out)
+        run_oneshot(lm, sets, a.k, a.temperature, a.max_tokens, a.out)
     else:
-        guided = not a.no_guided
-        if guided:
-            try:
-                _guided([" a"], 1.0, 4)
-            except Exception as e:  # noqa: BLE001
-                print(f"guided decoding unavailable ({e}); sampling with retries", flush=True)
-                guided = False
-        run_step(llm, sets, a.k, a.temperature, a.retries, guided, a.out)
+        run_step(lm, sets, a.k, a.temperature, a.out)
     print(f"done in {time.time() - t0:.0f}s -> {a.out}", flush=True)
     return 0
 
