@@ -197,6 +197,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     rng = random.Random(a.seed)
     torch.manual_seed(a.seed)
+    torch.set_num_threads(4)
     allc = corpus_cells(a.plans)
     train = [c for c, v in allc.items() if v[2] == "train"]
     val_ids = random.Random(1).sample(sorted(c for c, v in allc.items() if v[2] == "val"), a.eval_cells)
