@@ -122,3 +122,33 @@ Per-sample / pass@k (k=8; probe k=4), width = passing samples' W / W_euler (mean
   tokens; negative advantages pushed mass onto illegal tokens (log-prob drift of -2 nats in 40 steps,
   no gain). Fixed by renormalizing over the legal-token set at each position (`rl.Policy._logps`).
 - Cost: A40 pod 4.9 h, about $2.90. Models saved locally: `out/llm/rl2_best`, `out/llm/step05s1_model`.
+
+## RL for routability: channel-density penalty (2026-11-12, A40, rl3)
+
+**Trained on**: <= 5 inputs, <= 9 per side, stack <= 4. SL as step05s1 (seed 1, retrained), then RL with
+the rl2 settings (80 steps x 32 cells x 8, lr 2e-6, beta 0.02, in-distribution TRAIN topologies only) and
+reward = width reward - 0.15 * max(0, D - 2), D = channel density (`cellgym/llm/congest.py`: max number of
+channel nets, i.e. nets touching both rows or a gate, whose column span covers one column). **Tested on**
+the same never-seen sets as rl2.
+
+Why density: on step05s1's OOD samples, D <= 3 routes 100%, D = 4 routes 34-73%, D = 5 10-40%, D = 6 0-25%.
+
+| set | trained up to -> tested | rl2 (width only) per-sample / pass@8, mean D | **rl3 (width + density)** per-sample / pass@8, mean D | rl3 W/W_e mean / best |
+|---|---|---|---|---|
+| ood6-10 | 5 -> 6-10 inputs | 100 / 100, 1.0-2.6 | 100 / 100, 1.0-2.6 | 1.05-1.07 / 1.00-1.02 |
+| oodstack5 / 6 | stack 4 -> 5 / 6 | 81 / 97, 87 / 100; D 3.5 | 81 / 99, 87 / 100; D 3.8 / 3.5 | 1.09 / 1.02-1.03 |
+| ooddev10 | 9 -> 10 per side | 59 / 94, D 4.20 | 63 / 97, D 4.21 | 1.10 / 1.04 |
+| ooddev11 | 9 -> 11 per side | 42 / 90, D 4.45 | 41 / 84, D 4.32 | 1.10 / 1.05 |
+| ooddev12 | 9 -> 12 per side | 33 / 73, D 4.78 | 28 / 80, D 4.79 | 1.09 / 1.05 |
+| probe i8d14 (k=4) | 5 & 9 -> 8 inputs & 14 per side | 33 / 75 | 34 / 70 | - |
+
+- **Negative result: the density penalty did not lower density, in distribution or out.** In-distribution
+  val D stayed at 3.43 through RL; OOD D is unchanged (4.2-4.8). Pass rates are within noise of rl2.
+- Reason: in the training range D is almost fixed by the cell (always <= 3, little spread within a group
+  of 8 placements of one cell), so the penalty gives the policy almost no contrast to learn from. A
+  reward that only bites outside the training range can't be learned inside it.
+- The OOD cells are dense by nature: the Euler reference plans for the same cells have D = 4-6 too
+  (ooddev10: 113 at 3, 319 at 4, 99 at 5), and they route because Euler searches many placements and keeps a
+  routable one. So the policy's placements are not more congested than Euler's; routing at D >= 4 depends
+  on finer structure (which nets share columns, stub and pad positions) than the max-density number.
+- Cost: A40 3.2 h ~= $1.90 (+ ~$0.05 for an H200 pod that billed $3.79/h, not the listed $0.50; killed in 1 min).
