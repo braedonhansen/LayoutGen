@@ -61,6 +61,11 @@ def main(argv=None) -> int:
     rows = [json.loads(l) for l in a.samples.read_text().splitlines()]
     extra = [tuple(x.split("=", 1)) for x in a.extra]
     sets = load_sets(sorted({r["set"] for r in rows}), extra)
+    from cellgym.llm.congest import density
+    dens = defaultdict(list)
+    for r in rows:
+        if r.get("cols") and r.get("status") == "done":
+            dens[r["set"]].append(density(r["cols"]))
     with ProcessPoolExecutor(a.jobs, initializer=_init, initargs=(sets,)) as ex:
         res = list(ex.map(_score, rows, chunksize=8))
     per = defaultdict(lambda: defaultdict(list))
@@ -81,6 +86,8 @@ def main(argv=None) -> int:
                    "best_of_k_w_over_euler": (lambda b: sum(b) / len(b) if b else None)(
                        [min(wr for st, wr in v if st == "pass" and wr) for v in cs.values()
                         if any(st == "pass" and wr for st, wr in v)]),
+                   "density_mean": sum(dens[s]) / len(dens[s]) if dens[s] else None,
+                   "density_le3": sum(d <= 3 for d in dens[s]) / len(dens[s]) if dens[s] else None,
                    "stages": dict(stages[s].most_common(6))}
     out = a.samples.with_suffix(".summary.json")
     out.write_text(json.dumps(summ, indent=1) + "\n")

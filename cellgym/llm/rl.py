@@ -5,7 +5,9 @@
 Episode = one full placement of a cell by the policy (Placer env, legal moves only, sampled at T=1),
 routed by the Euler baseline's router and scored by the repo pipeline. Reward: 0 if it fails, else
 1 + (W_euler - W) / W_euler (bench reward). Advantage = (r - group mean) / (group std + 1e-4) over the
-G placements of one cell; every step's action in an episode gets its episode's advantage. Loss =
+G placements of one cell; with --lam-dens L the reward is lowered by
+L * max(0, D - 2), D = channel density of the placement (cellgym.llm.congest), a size-free
+routability signal (density <= 3 routes every OOD sample, 5-6 mostly fails); every step's action in an episode gets its episode's advantage. Loss =
 -mean over episodes of (A * mean over steps of log p(action | state)), one on-policy update per batch,
 plus beta * (logp - logp_ref) on the same actions as a cheap KL anchor.
 
@@ -27,10 +29,19 @@ from pathlib import Path
 import torch
 
 from cellgym.llm import fmt as F
+from cellgym.llm.congest import density
 from cellgym.llm.infer import LM
 
 
 def _route_score(job):
+    r, wr = _route_score1(job[:3])
+    if len(job) > 3 and job[3]:
+        from cellgym.llm.congest import density
+        r -= job[3] * max(0, density(job[1]) - 2) if job[1] else 0.0
+    return r, wr
+
+
+def _route_score1(job):
     from cellgym.baselines.common import BaselineError, route_best
     from cellgym.bench.evaluate import evaluate
     nl, cols, we = job
@@ -176,11 +187,12 @@ class Policy:
         return tot, kl_sum / max(1, len(pairs))
 
 
-def evaluate(pol, pool, cells, k, temperature):
+def evaluate(pol, pool, cells, k, temperature, lam=0.0):
+    from cellgym.llm.congest import density
     ids = sorted(cells)
     nls = [cells[c][0] for c in ids for _ in range(k)]
     ro = pol.rollout(nls, temperature)
-    jobs = [(cells[c][0], cols, cells[c][1]) for c, (st, cols, _) in zip([c for c in ids for _ in range(k)], ro)]
+    jobs = [(cells[c][0], cols, cells[c][1], lam) for c, (st, cols, _) in zip([c for c in ids for _ in range(k)], ro)]
     res = list(pool.map(_route_score, jobs, chunksize=4))
     ok = [wr for r, wr in res if wr]
     by = {}
@@ -189,7 +201,8 @@ def evaluate(pol, pool, cells, k, temperature):
     best = [min(x for x in v if x) for v in by.values() if any(v)]
     return {"pass": len(ok) / len(res), "w": sum(ok) / len(ok) if ok else None,
             "best_w": sum(best) / len(best) if best else None,
-            "reward": sum(r for r, _ in res) / len(res)}
+            "reward": sum(r for r, _ in res) / len(res),
+            "dens": sum(density(cols) for _, cols, _ in ro if cols) / max(1, sum(1 for _, cols, _ in ro if cols))}
 
 
 def main(argv=None) -> int:
@@ -207,6 +220,7 @@ def main(argv=None) -> int:
     ap.add_argument("--eval-cells", type=int, default=96)
     ap.add_argument("--jobs", type=int, default=32)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--lam-dens", type=float, default=0.0, help="reward penalty per density unit above 2")
     a = ap.parse_args(argv)
     rng = random.Random(a.seed)
     torch.manual_seed(a.seed)
@@ -228,7 +242,7 @@ def main(argv=None) -> int:
     with ProcessPoolExecutor(a.jobs) as pool:
         def check(step):
             nonlocal best
-            v = evaluate(pol, pool, val, 4, 0.7)
+            v = evaluate(pol, pool, val, 4, 0.7, a.lam_dens)
             rec = {"step": step, "eval": "val", **v}
             if v["w"] is not None and (best is None or (v["reward"] > best)):
                 best = v["reward"]
@@ -245,7 +259,7 @@ def main(argv=None) -> int:
             ro = pol.rollout(nls, a.temperature)
             torch.cuda.empty_cache()
             t1 = time.time()
-            jobs = [(allc[c][0], cols, allc[c][1]) for c, (_, cols, _) in zip([c for c in ids for _ in range(a.group)], ro)]
+            jobs = [(allc[c][0], cols, allc[c][1], a.lam_dens) for c, (_, cols, _) in zip([c for c in ids for _ in range(a.group)], ro)]
             res = list(pool.map(_route_score, jobs, chunksize=2))
             t2 = time.time()
             eps, flat = [], 0
@@ -262,7 +276,8 @@ def main(argv=None) -> int:
             loss, kl = pol.update(eps) if eps else (0.0, 0.0)
             ok = [wr for _, wr in res if wr]
             rec = {"step": step, "reward": sum(r for r, _ in res) / len(res), "pass": len(ok) / len(res),
-                   "w": sum(ok) / len(ok) if ok else None, "flat_groups": flat, "loss": loss, "kl": kl,
+                   "w": sum(ok) / len(ok) if ok else None, "flat_groups": flat,
+                   "dens": sum(density(cols) for _, cols, _ in ro if cols) / max(1, sum(1 for _, cols, _ in ro if cols)), "loss": loss, "kl": kl,
                    "t_roll": round(t1 - t0, 1), "t_score": round(t2 - t1, 1), "t_upd": round(time.time() - t2, 1)}
             print(rec, flush=True)
             log.write(json.dumps(rec) + "\n")
