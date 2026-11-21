@@ -17,10 +17,12 @@ RAIL_HALF_WIDTH = 0.24      # hd rails, met1 0.48 wide
 ROW_MARGIN = 0.235          # poly.8 endcap 0.13 + half of poly.2 (0.21) to the abutting row
 NDIFF_TO_TRACK = 0.275      # licon.14 0.19 + half licon 0.085
 TRACK_TO_PDIFF = 0.32       # licon.9 + psdm.5a 0.235 + half licon 0.085
-CHANNEL_TRACKS = 3
+CHANNEL_TRACKS = 3          # default; a plan may ask for another count (`tracks N`)
+MIN_CHANNEL_TRACKS = 1
+MAX_CHANNEL_TRACKS = 8
 EPS = 1e-9
 
-CHANNEL_NAMES = tuple(f"c{i}" for i in range(CHANNEL_TRACKS))
+CHANNEL_NAMES = tuple(f"c{i}" for i in range(CHANNEL_TRACKS))   # names at the default count
 
 
 def _track_y(k: int) -> float:
@@ -30,15 +32,23 @@ def _track_y(k: int) -> float:
 @dataclass(frozen=True)
 class Layout:
     height: float
-    channel_k: tuple[int, ...]     # met1 grid index of c0, c1, c2
+    channel_k: tuple[int, ...]     # met1 grid index of c0 .. c{T-1}
     n_tracks: int                  # n0 .. n{n_tracks-1}, n0 next to the channel
     p_tracks: int                  # p0 .. p{p_tracks-1}, p0 next to the channel
+
+    @property
+    def channel_tracks(self) -> int:
+        return len(self.channel_k)
+
+    @property
+    def channel_names(self) -> tuple[str, ...]:
+        return tuple(f"c{i}" for i in range(len(self.channel_k)))
 
     def has_track(self, name: str) -> bool:
         region, idx = name[0], name[1:]
         if not idx.isdigit():
             return False
-        limit = {"c": CHANNEL_TRACKS, "n": self.n_tracks, "p": self.p_tracks}.get(region)
+        limit = {"c": self.channel_tracks, "n": self.n_tracks, "p": self.p_tracks}.get(region)
         return limit is not None and int(idx) < limit
 
     def track_k(self, name: str) -> int:
@@ -48,11 +58,13 @@ class Layout:
                 "p": self.channel_k[-1] + 1 + i}[name[0]]
 
 
-def layout(w_n: float, w_p: float) -> Layout:
-    """Smallest height on the met1 grid that fits w_n, w_p and the channel."""
+def layout(w_n: float, w_p: float, tracks: int = CHANNEL_TRACKS) -> Layout:
+    """Smallest height on the met1 grid that fits w_n, w_p and `tracks` channel tracks."""
+    if not MIN_CHANNEL_TRACKS <= tracks <= MAX_CHANNEL_TRACKS:
+        raise ValueError(f"channel tracks {tracks} outside {MIN_CHANNEL_TRACKS}..{MAX_CHANNEL_TRACKS}")
     ndiff_top = ROW_MARGIN + w_n
     k0 = math.ceil((ndiff_top + NDIFF_TO_TRACK - MET1_OFFSET) / MET1_PITCH - EPS)
-    channel_k = tuple(range(k0, k0 + CHANNEL_TRACKS))
+    channel_k = tuple(range(k0, k0 + tracks))
     pdiff_top = _track_y(channel_k[-1]) + TRACK_TO_PDIFF + w_p
     pitches = math.ceil((pdiff_top + ROW_MARGIN) / MET1_PITCH - EPS)
     height = round(pitches * MET1_PITCH, 3)
@@ -64,7 +76,7 @@ def layout(w_n: float, w_p: float) -> Layout:
     return Layout(height, channel_k, n_tracks, p_tracks)
 
 
-def layout_for_netlist(netlist: dict) -> Layout:
+def layout_for_netlist(netlist: dict, tracks: int = CHANNEL_TRACKS) -> Layout:
     devs = netlist["devices"]
     return layout(max(d["w"] for d in devs if d["type"] == "nmos"),
-                  max(d["w"] for d in devs if d["type"] == "pmos"))
+                  max(d["w"] for d in devs if d["type"] == "pmos"), tracks)

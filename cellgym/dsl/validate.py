@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from .plan import ROWS, Endpoint, Plan
-from .template import CHANNEL_NAMES, Layout, layout_for_netlist
+from .template import Layout, layout_for_netlist
 
 RAILS = {"nmos": "VSS", "pmos": "VDD"}
 SUPPLY = {"VDD", "VSS", "VPB", "VNB"}
@@ -65,7 +65,8 @@ class _Checker:
     def __init__(self, plan: Plan, netlist: dict):
         self.plan = plan
         self.netlist = netlist
-        self.report = Report(layout_for_netlist(netlist))
+        self.report = Report(layout_for_netlist(netlist, plan.tracks))
+        self.cnames = self.report.layout.channel_names
         self.cols = plan.columns
         self.islands: list[_Island] = []
         self.island_at: dict[tuple[str, int], _Island] = {}
@@ -234,7 +235,7 @@ class _Checker:
             if not lay.has_track(r.track):
                 self.err(r.line, "track-missing", f"track {r.track} does not exist at height {lay.height}", r.net)
                 continue
-            if r.layer == "li1" and r.track not in CHANNEL_NAMES:
+            if r.layer == "li1" and r.track not in self.cnames:
                 self.err(r.line, "li-off-channel", f"li1 runs only on channel tracks, not {r.track}", r.net)
                 continue
             if r.net in SUPPLY:
@@ -246,7 +247,7 @@ class _Checker:
                     key = self._gate_endpoint(ep, r.net, r.line)
                     if key is None:
                         continue
-                    if r.track not in CHANNEL_NAMES:
+                    if r.track not in self.cnames:
                         self.err(r.line, "gate-track", f"{ep}: gate contacts sit on channel tracks, not {r.track}", r.net)
                         continue
                     self._set_gate_track(key, r.track, r.line)
@@ -281,7 +282,7 @@ class _Checker:
             if p.landing.kind == "gate":
                 key = self._gate_endpoint(p.landing, p.net, p.line)
                 if key is not None and p.track:
-                    if not lay.has_track(p.track) or p.track not in CHANNEL_NAMES:
+                    if not lay.has_track(p.track) or p.track not in self.cnames:
                         self.err(p.line, "gate-track", f"pin track {p.track} is not a channel track", p.net)
                     else:
                         self._set_gate_track(key, p.track, p.line)
@@ -291,6 +292,7 @@ class _Checker:
                 self._sd_endpoint(p.landing, p.net, p.line)
 
     def check_gate_tracks(self) -> None:
+        names = self.cnames
         tracks = self.report.gate_tracks
         for key, net in self.gate_contacts.items():
             if key not in tracks and net not in self.bad_nets:
@@ -300,9 +302,11 @@ class _Checker:
         for (col, side), t in tracks.items():
             if side == "n" and (col, "p") in tracks:
                 # poly pads on adjacent tracks are 0.07 apart (poly.2 needs 0.21)
-                if CHANNEL_NAMES.index(tracks[(col, "p")]) - CHANNEL_NAMES.index(t) < 2:
+                if names.index(tracks[(col, "p")]) - names.index(t) < 2:
+                    rule = ("NMOS on c0, PMOS on c2" if len(names) == 3 else
+                            f"NMOS at least 2 tracks below PMOS ({len(names)} channel tracks)")
                     self.err(self.cols[col].line, "split-order",
-                             f"column {col}: split contacts must be NMOS on c0, PMOS on c2")
+                             f"column {col}: split contacts must be {rule}")
 
     def check_met1_pads(self) -> None:
         """met1 mcon pads (0.23 tall) on adjacent tracks in one sd column are 0.11
@@ -356,17 +360,17 @@ class _Checker:
         for r in self.plan.routes:
             if r.net in SUPPLY or not self.report.layout.has_track(r.track):
                 continue
-            if r.layer == "li1" and r.track not in CHANNEL_NAMES:
+            if r.layer == "li1" and r.track not in self.cnames:
                 continue
             cs = [ep.col for ep in r.endpoints]
             (li if r.layer == "li1" else m1)[r.track].append((min(cs), max(cs), r.net, r.line))
-            if r.track not in CHANNEL_NAMES:
+            if r.track not in self.cnames:
                 continue
-            i = CHANNEL_NAMES.index(r.track)
+            i = self.cnames.index(r.track)
             for ep in r.endpoints:
                 if ep.kind == "gate":
                     continue
-                crossed = CHANNEL_NAMES[: i + 1] if ep.kind == "nmos" else CHANNEL_NAMES[i:]
+                crossed = self.cnames[: i + 1] if ep.kind == "nmos" else self.cnames[i:]
                 for t in crossed:
                     li[t].append((ep.col, ep.col, r.net, r.line))
         for (col, side), t in self.report.gate_tracks.items():

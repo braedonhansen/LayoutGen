@@ -95,3 +95,23 @@ def test_drc_lvs(name, tmp_path):
     assert r.magic_items == [], r.magic_items     # Magic full DRC, tapless rules excluded
     assert r.lvs_ok, r.lvs_lines
     assert r.ok
+
+
+@pytest.mark.parametrize("hdr, track", [("", "c1"), ("tracks 1\n", "c0"), ("tracks 5\n", "c3")])
+def test_lone_met1_pad_meets_min_area(hdr, track):
+    """A met1 route with both endpoints in one column is only its mcon pad;
+    the pad is widened to the met1 min area (m1.6, 0.083 um2)."""
+    from cellgym.check import check
+    dev = lambda n, t, m, d, s, b, w: {"name": n, "type": t, "model": m, "gate": "A", "drain": d,
+                                       "source": s, "bulk": b, "w": w, "l": 0.15}
+    nl = {"id": "inv", "inputs": ["A"], "ports": ["A", "OUT", "VDD", "VSS", "VPB", "VNB"],
+          "nets": ["A", "OUT", "VDD", "VSS", "VPB", "VNB"],
+          "devices": [dev("MN1", "nmos", "sky130_fd_pr__nfet_01v8", "OUT", "VSS", "VNB", 0.42),
+                      dev("MP1", "pmos", "sky130_fd_pr__pfet_01v8_hvt", "OUT", "VDD", "VPB", 0.63)]}
+    text = (f"cell inv\nin A\nout OUT\n{hdr}col 0 sd n=OUT* p=OUT*\ncol 1 g n=A p=A\ncol 2 sd n=VSS* p=VDD*\n"
+            f"route OUT met1 {track} nmos:0 pmos:0\npin A gate:1 c0\npin OUT nmos:0\n")
+    cell = render(parse(text), nl)
+    pads = [s for s in cell.shapes if s.layer == "met1" and s.owner == ("net", "OUT") and s.x1 > s.x0]
+    assert pads and all((s.x1 - s.x0) * (s.y1 - s.y0) >= 83000 for s in pads)
+    res = check(cell, nl)
+    assert res.ok, res.summary()

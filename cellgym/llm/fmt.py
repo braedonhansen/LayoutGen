@@ -10,6 +10,7 @@ Two pipelines, both reading the netlist as text:
                left nmos: A OUT-n1 | B n1-VSS        unplaced devices: gate drain-source
                left pmos: A VDD-p1 | B p1-OUT
                last: sd n=VSS p=VDD | g A | sd n=OUT p=p1      last LAST_K columns
+               open: A OUT n1                                  nets crossing the frontier (v2)
                next:
 
            target = one column ("g A" or "sd n=n1 p=p2"). The environment lists the legal
@@ -18,12 +19,19 @@ Two pipelines, both reading the netlist as text:
            pins). Nothing in the state grows with the cell except the shrinking device
            lists; no column numbers, no plan length.
 
+           The open: line (STATE_VERSION "v2", the default; env CELLGYM_STATE=v1 gives the
+           state without it, for older checkpoints and samples) lists, sorted, the non-rail
+           nets that already appear in a placed column (gate, or nmos/pmos sd net) and
+           still appear on an unplaced device (gate or terminal); "none" when empty. Its
+           length is the channel density at the frontier, not the cell size.
+
 Augmentation (training only): order-preserving renaming of inputs onto random letters A-Z
 and of internal nets onto random distinct numbers, consistently in prompt and target.
 """
 
 from __future__ import annotations
 
+import os
 import random
 import re
 from collections import Counter
@@ -31,6 +39,11 @@ from collections import Counter
 from cellgym.baselines.common import outputs_of
 
 LAST_K = 3
+RAILS = ("VSS", "VDD")
+STATE_VERSIONS = ("v1", "v2")
+STATE_VERSION = os.environ.get("CELLGYM_STATE", "v2")   # v1: no open: line; v2: with it
+if STATE_VERSION not in STATE_VERSIONS:
+    raise ValueError(f"CELLGYM_STATE must be one of {STATE_VERSIONS}, got {STATE_VERSION!r}")
 LETTERS = [chr(c) for c in range(ord("A"), ord("Z") + 1)]
 NET_MAX = 40
 _INPUT_WORD = re.compile(r"(?<![A-Za-z0-9])([A-Z])(?![A-Za-z0-9])")
@@ -146,10 +159,19 @@ class Placer:
             items += [f"{g} {a}-{b}"] * n
         return " | ".join(items) if items else "none"
 
-    def state(self) -> str:
+    def open_nets(self) -> list[str]:
+        """Non-rail nets on a placed column that an unplaced device still uses, sorted."""
+        placed = {x for c in self.cols for x in c[1:]}
+        todo = {x for kind in ("nmos", "pmos") for (g, t), n in self.left[kind].items() if n > 0
+                for x in (g, *t)}
+        return sorted((placed & todo) - set(RAILS))
+
+    def state(self, version: str | None = None) -> str:
         last = " | ".join(col_text(c) for c in self.cols[-LAST_K:]) or "start"
-        return (f"left nmos: {self._row('nmos')}\nleft pmos: {self._row('pmos')}\n"
-                f"last: {last}\nnext:")
+        head = f"left nmos: {self._row('nmos')}\nleft pmos: {self._row('pmos')}\nlast: {last}\n"
+        if (version or STATE_VERSION) == "v1":
+            return head + "next:"
+        return head + f"open: {' '.join(self.open_nets()) or 'none'}\nnext:"
 
     def done(self) -> bool:
         return (not +self.left["nmos"] and not +self.left["pmos"] and bool(self.cols)

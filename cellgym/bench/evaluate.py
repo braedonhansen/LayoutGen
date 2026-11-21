@@ -24,6 +24,8 @@ class Evaluation:
     check_ms: float | None = None
     rendered: Rendered | None = None
     checked: CheckResult | None = None
+    height_nm: int | None = None
+    tracks: int | None = None
 
     @property
     def ok(self) -> bool:
@@ -78,10 +80,10 @@ def evaluate(plan_text: str | None, netlist: dict, keep: bool = False) -> Evalua
         cell = render(plan, netlist)
     except (RenderError, ValueError, KeyError, IndexError) as e:
         return Evaluation(cid, "render", f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}",
-                          breaks=breaks)
+                          breaks=breaks, tracks=plan.tracks)
     res = check(cell, netlist)
     ev = Evaluation(cid, "pass" if res.ok else "check", "" if res.ok else res.summary(),
-                    cell.width_nm, cell.sites, breaks, res.ms)
+                    cell.width_nm, cell.sites, breaks, res.ms, height_nm=cell.height_nm, tracks=plan.tracks)
     if keep:
         ev.rendered, ev.checked = cell, res
     return ev

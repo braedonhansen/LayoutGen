@@ -111,3 +111,111 @@ def test_drc_lvs(name, tmp_path, cells):
     assert r.magic_items == [], r.magic_items
     assert r.lvs_ok, r.lvs_lines
     assert r.ok
+
+
+# -- channel tracks per plan ---------------------------------------------------
+
+def _placements(nl):
+    from cellgym.baselines.euler import MAX_PLACEMENTS, _columns, _Placer
+    return [_columns(s) for s in _Placer(nl).sequences(MAX_PLACEMENTS)]
+
+
+def test_route_best_default_tracks_unchanged():
+    from cellgym.baselines.common import route_best
+    nl = example("half_adder")
+    r = route_best(_placements(nl), nl)
+    assert r.text == euler_plan(nl) and "tracks" not in r.text
+    assert r.tracks == 3 and r.height_um == pytest.approx(render(parse(r.text), nl).height)
+
+
+@pytest.mark.parametrize("name", ["aoi21", "half_adder"])
+@pytest.mark.parametrize("tracks", [4, 5])
+def test_route_best_more_tracks(name, tracks):
+    from cellgym.baselines.common import route_best
+    from cellgym.bench.evaluate import evaluate
+    nl = example(name)
+    base = route_best(_placements(nl), nl)
+    r = route_best(_placements(nl), nl, tracks=tracks)
+    assert r.tracks == tracks and f"\ntracks {tracks}\n" in r.text
+    assert r.height_um == pytest.approx(base.height_um + 0.34 * (tracks - 3))
+    ev = evaluate(r.text, nl)
+    assert ev.ok, ev.detail
+    assert ev.tracks == tracks and ev.height_nm == round(r.height_um * 1000)
+
+
+def test_route_min_tracks_small_cell():
+    from cellgym.baselines.common import BaselineError, route_best, route_min_tracks
+    from cellgym.bench.evaluate import evaluate
+    from cellgym.dsl.template import MIN_CHANNEL_TRACKS
+    nl = example("aoi21")
+    cols = _placements(nl)
+    r = route_min_tracks(cols, nl)
+    assert MIN_CHANNEL_TRACKS <= r.tracks <= 3
+    assert parse(r.text).tracks == r.tracks
+    ev = evaluate(r.text, nl)                      # fast checker: DRC + LVS
+    assert ev.ok, ev.detail
+    assert r.height_um == pytest.approx(route_best(cols, nl).height_um - 0.34 * (3 - r.tracks))
+    for t in range(MIN_CHANNEL_TRACKS, r.tracks):  # minimal: nothing below it routes
+        with pytest.raises(BaselineError):
+            route_best(cols, nl, t)
+    assert route_min_tracks(cols, nl, t_min=4).tracks == 4
+
+
+def test_route_min_tracks_raises_when_nothing_routes():
+    from cellgym.baselines.common import BaselineError, route_min_tracks
+    nl = example("half_adder")                     # SPEC section 1: no legal routing with 2 tracks
+    with pytest.raises(BaselineError):
+        route_min_tracks(_placements(nl), nl, t_max=2)
+
+
+@pytest.mark.parametrize("name", ["aoi21", "half_adder"])
+def test_route_min_area_is_the_smallest_area(name):
+    from cellgym.baselines.common import BaselineError, route_best, route_min_area, route_min_tracks
+    from cellgym.bench.evaluate import evaluate
+    nl = example(name)
+    cols = _placements(nl)
+    r = route_min_area(cols, nl)
+    first = route_min_tracks(cols, nl)
+    assert r.area_um2 == pytest.approx(r.width_um * r.height_um) and r.area_um2 > 0
+    assert r.tracks >= first.tracks and r.area_um2 <= first.area_um2 + 1e-9
+    assert parse(r.text).tracks == r.tracks
+    assert evaluate(r.text, nl).ok
+    for t in range(first.tracks, first.tracks + 3):   # nothing in the searched window is smaller
+        try:
+            x = route_best(cols, nl, t)
+        except BaselineError:
+            continue
+        assert r.area_um2 <= x.area_um2 + 1e-9
+        if x.area_um2 == pytest.approx(r.area_um2):
+            assert r.tracks <= t                      # ties: fewer tracks
+
+
+def test_route_min_area_search_window(monkeypatch):
+    """A taller channel wins only when it routes narrow enough; the search stops when width stalls."""
+    from cellgym.baselines import common as C
+    widths = {2: 4.0, 3: 3.0, 4: 2.9, 5: 2.8, 6: 0.1}
+    calls = []
+
+    def fake(placements, netlist, tracks=3):
+        calls.append(tracks)
+        if tracks not in widths:
+            raise C.BaselineError("no-routing", "x")
+        h = 2.0 + 0.34 * tracks
+        return C.Routed("", 0, widths[tracks], 0, False, 0, tracks, h, widths[tracks] * h)
+
+    monkeypatch.setattr(C, "route_best", fake)
+    r = C.route_min_area([[]], {})
+    assert r.tracks == 3 and calls == [1, 2, 3, 4, 5]   # T0 = 2, then T0+1..T0+3 only; 3.0*3.02 is smallest
+    widths[3] = 4.0
+    calls.clear()
+    assert C.route_min_area([[]], {}).tracks == 2 and calls == [1, 2, 3]   # width did not shrink: stop
+    with pytest.raises(C.BaselineError):
+        C.route_min_area([[]], {}, t_min=7)
+
+
+def test_route_best_fills_area():
+    from cellgym.baselines.common import route_best
+    nl = example("aoi21")
+    r = route_best(_placements(nl), nl)
+    assert r.area_um2 == pytest.approx(r.width_um * r.height_um)
+    assert r.text == euler_plan(nl)

@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Callable
 
 from cellgym.dsl.plan import parse
-from cellgym.dsl.template import CHANNEL_NAMES, Layout, layout_for_netlist
+from cellgym.dsl.template import (CHANNEL_TRACKS, MAX_CHANNEL_TRACKS, MIN_CHANNEL_TRACKS, Layout,
+                                  layout_for_netlist)
 from cellgym.dsl.validate import SUPPLY, validate
 from cellgym.render.render import RenderError, render
 
@@ -59,6 +60,7 @@ class Net:
 class Router:
     def __init__(self, cols: list[tuple], netlist: dict, outputs: list[str], lay: Layout):
         self.cols, self.outputs, self.lay = cols, outputs, lay
+        self.cnames = lay.channel_names
         self.inputs = list(netlist["inputs"])
         rows = {"nmos": 1, "pmos": 2}
         islands = []                                  # [row, net, [cols]]
@@ -107,7 +109,7 @@ class Router:
                 col = eps[0][1]
                 self.nets.append(Net(net, eps, [
                     Option(None, t, [(("li", t), col, col), (("poly", t), col, col)], [])
-                    for t in CHANNEL_NAMES]))
+                    for t in self.cnames]))
 
     def _route_options(self, eps: list) -> list[Option]:
         kinds = {k for k, _ in eps}
@@ -116,19 +118,19 @@ class Router:
             row = next(iter(kinds))
             n = self.lay.n_tracks if row == "nmos" else self.lay.p_tracks
             tracks += [("met1", f"{row[0]}{j}") for j in range(n)]
-        tracks += [(layer, t) for layer in ("li1", "met1") for t in CHANNEL_NAMES]
+        tracks += [(layer, t) for layer in ("li1", "met1") for t in self.cnames]
         lo, hi = min(c for _, c in eps), max(c for _, c in eps)
         opts = []
         for layer, t in tracks:
             objs = [(("li" if layer == "li1" else "m1", t), lo, hi)]
             pads = []
-            if t in CHANNEL_NAMES:
-                ti = CHANNEL_NAMES.index(t)
+            if t in self.cnames:
+                ti = self.cnames.index(t)
                 for kind, col in eps:
                     if kind == "gate":
                         objs += [(("li", t), col, col), (("poly", t), col, col)]
                     else:
-                        crossed = CHANNEL_NAMES[: ti + 1] if kind == "nmos" else CHANNEL_NAMES[ti:]
+                        crossed = self.cnames[: ti + 1] if kind == "nmos" else self.cnames[ti:]
                         objs += [(("li", x), col, col) for x in crossed]
             if layer == "met1":
                 k = self.lay.track_k(t)
@@ -198,6 +200,8 @@ class Router:
 
     def plan_text(self, name: str, choice: dict) -> str:
         lines = [f"cell {name}", "in " + " ".join(self.inputs), "out " + " ".join(self.outputs)]
+        if self.lay.channel_tracks != CHANNEL_TRACKS:
+            lines.append(f"tracks {self.lay.channel_tracks}")
         for i, c in enumerate(self.cols):
             if c[0] == "g":
                 lines.append(f"col {i} g n={c[1]} p={c[1]}")
@@ -240,13 +244,16 @@ class Routed:
     sites: int
     capped: bool          # some routing search hit NODE_CAP
     index: int            # which placement won
+    tracks: int = CHANNEL_TRACKS   # channel tracks of the plan
+    height_um: float = 0.0
+    area_um2: float = 0.0          # width_um * height_um
 
 
-def route_best(placements: list[list[tuple]], netlist: dict) -> Routed:
+def route_best(placements: list[list[tuple]], netlist: dict, tracks: int = CHANNEL_TRACKS) -> Routed:
     """Route every placement; best (near-misses, width) plan that validates and renders."""
     name = netlist["id"]
     outputs = outputs_of(netlist)
-    lay = layout_for_netlist(netlist)
+    lay = layout_for_netlist(netlist, tracks)
     best = None
     capped = False
     last_err = BaselineError("no-routing", "no legal routing for any placement")
@@ -276,7 +283,48 @@ def route_best(placements: list[list[tuple]], netlist: dict) -> Routed:
             last_err = BaselineError("no-routing", "no legal routing found before the search cap")
         raise last_err
     (nm, _), text, cell, idx = best
-    return Routed(text, nm, cell.width, cell.sites, capped, idx)
+    return Routed(text, nm, cell.width, cell.sites, capped, idx, tracks, cell.height,
+                  cell.width * cell.height)
+
+
+def route_min_tracks(placements: list[list[tuple]], netlist: dict,
+                     t_min: int = MIN_CHANNEL_TRACKS, t_max: int = MAX_CHANNEL_TRACKS) -> Routed:
+    """route_best at the fewest channel tracks in t_min..t_max that route
+    (the shortest cell); raises the last BaselineError if none does."""
+    if t_min > t_max:
+        raise ValueError(f"empty track range {t_min}..{t_max}")
+    last_err = None
+    for t in range(t_min, t_max + 1):
+        try:
+            return route_best(placements, netlist, t)
+        except BaselineError as e:
+            last_err = e
+    raise last_err
+
+
+AREA_EXTRA_TRACKS = 3       # route_min_area looks at most this many tracks past the first that routes
+
+
+def route_min_area(placements: list[list[tuple]], netlist: dict,
+                   t_min: int = MIN_CHANNEL_TRACKS, t_max: int = MAX_CHANNEL_TRACKS) -> Routed:
+    """route_best at the channel-track count in t_min..t_max with the smallest area
+    (width x height; ties: fewer tracks). The first count that routes (T0) is the shortest
+    cell; a taller channel only wins if it routes narrower, so T0+1 .. T0+AREA_EXTRA_TRACKS
+    are tried, stopping at the first count that does not route narrower than every
+    count before it. Raises the last BaselineError if no count routes."""
+    first = route_min_tracks(placements, netlist, t_min, t_max)
+    best, w_min = first, first.width_um
+    for t in range(first.tracks + 1, min(first.tracks + AREA_EXTRA_TRACKS, t_max) + 1):
+        try:
+            r = route_best(placements, netlist, t)
+        except BaselineError:
+            break
+        if r.width_um >= w_min - 1e-9:        # no narrower: a taller channel cannot win
+            break
+        w_min = r.width_um
+        if r.area_um2 < best.area_um2 - 1e-9:
+            best = r
+    return best
 
 
 # -- CLI -------------------------------------------------------------------------------

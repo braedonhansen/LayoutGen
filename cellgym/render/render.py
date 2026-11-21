@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from cellgym.dsl.plan import ROWS, Plan
-from cellgym.dsl.template import CHANNEL_NAMES, MET1_OFFSET, MET1_PITCH
+from cellgym.dsl.template import MET1_OFFSET, MET1_PITCH
 from cellgym.dsl.validate import RAILS, SUPPLY, validate
 
 from .gds import GdsCell, dumps as gds_dumps
@@ -53,6 +53,7 @@ POLY_END = 130           # poly.8
 POLY_PAD = (165, 135)    # half sizes: licon 85 + 80 (x), + 50 (y)
 LI_PAD = (165, 85)
 M1_PAD = (145, 115)      # 0.29 x 0.23: m1.5 0.06 on x edges, m1.4 0.03 on y edges
+M1_SOLO_HALF = 185       # lone pad 0.37 x 0.23 = 0.0851 um2 (m1.6 min area 0.083)
 M1_HALF = 70
 SD_DIFF_HALF = 125       # licon 85 + diff enclosure 40
 NDIFF_TO_TRACK = 275
@@ -163,11 +164,12 @@ class _Builder:
         self.H = _nm(lay.height)
         ty = lambda k: _nm(MET1_OFFSET + MET1_PITCH * k)
         k0, k2 = lay.channel_k[0], lay.channel_k[-1]
-        self.track_y = {name: ty(k) for name, k in zip(CHANNEL_NAMES, lay.channel_k)}
+        self.c_top = lay.channel_names[-1]
+        self.track_y = {name: ty(k) for name, k in zip(lay.channel_names, lay.channel_k)}
         self.track_y.update({f"n{j}": ty(k0 - 1 - j) for j in range(lay.n_tracks)})
         self.track_y.update({f"p{j}": ty(k2 + 1 + j) for j in range(lay.p_tracks)})
         self.ntop = self.track_y["c0"] - NDIFF_TO_TRACK
-        self.pbot = self.track_y[CHANNEL_NAMES[-1]] + TRACK_TO_PDIFF
+        self.pbot = self.track_y[self.c_top] + TRACK_TO_PDIFF
         self.cols = plan.columns
         self._device_widths()
         self._islands()
@@ -224,6 +226,14 @@ class _Builder:
                         self.gate_m1.add((ep.col, ep.side))
                 else:
                     self.sd_tracks[(ep.kind, ep.col)].add((r.layer, r.track))
+        # a met1 route with every endpoint in one column draws no wire, only the
+        # mcon pad, which alone is under the met1 min area (m1.6): widen that pad
+        m1 = [(r, {e.col for e in r.endpoints}) for r in self.plan.routes if r.layer == "met1"]
+        self.m1_solo: set[tuple[int, str]] = set()
+        for r, cs in m1:
+            if len(cs) == 1 and not any(o is not r and o.net == r.net and o.track == r.track
+                                        and min(oc) <= min(cs) <= max(oc) for o, oc in m1):
+                self.m1_solo.add((min(cs), r.track))
 
     def _row_y(self, row: str, h: int) -> tuple[int, int]:
         return (self.ntop - h, self.ntop) if row == "nmos" else (self.pbot, self.pbot + h)
@@ -271,9 +281,9 @@ class _Builder:
                 out += self._via(net, y)
         return out
 
-    def _via(self, net: str, y: int) -> list[Shape]:
+    def _via(self, net: str, y: int, half: int = M1_PAD[0]) -> list[Shape]:
         return [Shape("mcon", -LICON_HALF, y - LICON_HALF, LICON_HALF, y + LICON_HALF),
-                Shape("met1", -M1_PAD[0], y - M1_PAD[1], M1_PAD[0], y + M1_PAD[1], ("net", net))]
+                Shape("met1", -half, y - M1_PAD[1], half, y + M1_PAD[1], ("net", net))]
 
     def licon_ys(self, row: str, i: int) -> list[int]:
         net = self.cols[i].nets[row]
@@ -286,7 +296,7 @@ class _Builder:
             if not rail:
                 lo = max(lo, RAIL_CLEAR)
         else:
-            lo = max(lo, self.track_y[CHANNEL_NAMES[-1]] + RAIL_CLEAR)
+            lo = max(lo, self.track_y[self.c_top] + RAIL_CLEAR)
             if not rail:
                 hi = min(hi, self.H - RAIL_CLEAR)
         if hi - lo < LICON:
@@ -319,7 +329,7 @@ class _Builder:
                 y = self.track_y[track]
                 s0, s1 = min(s0, y - LI_PAD[1]), max(s1, y + LI_PAD[1])
                 if layer == "met1":
-                    vias += self._via(net, y)
+                    vias += self._via(net, y, M1_SOLO_HALF if (i, track) in self.m1_solo else M1_PAD[0])
             out.append(Shape("li", -LICON_HALF, s0, LICON_HALF, s1, ("net", net), f"strap {row}"))
             out += vias
         return out
@@ -467,7 +477,7 @@ class _Builder:
             Shape("hvtp", xa, split, xb, H + IMPLANT_EXT),
             Shape("psdm", xa, sdm, xb, H + IMPLANT_EXT),
             Shape("nsdm", xa, -IMPLANT_EXT, xb, sdm),
-            Shape("npc", 0, self.track_y["c0"] - NPC_EXT, wb, self.track_y[CHANNEL_NAMES[-1]] + NPC_EXT),
+            Shape("npc", 0, self.track_y["c0"] - NPC_EXT, wb, self.track_y[self.c_top] + NPC_EXT),
             Shape("boundary", 0, 0, wb, H),
         ]
         self._xs = xs

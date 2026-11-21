@@ -41,7 +41,8 @@ def build(plans: Path, out: Path, rename: float, steps_per_plan: int, seed: int 
             n[f"step_{split}"] += 1
     for f in files.values():
         f.close()
-    m = {"plans": str(plans), "rename": rename, "steps_per_plan": steps_per_plan, "counts": n}
+    m = {"plans": str(plans), "rename": rename, "steps_per_plan": steps_per_plan,
+         "state": F.STATE_VERSION, "counts": n}
     (out / "manifest.json").write_text(json.dumps(m, indent=1) + "\n")
     return m
 

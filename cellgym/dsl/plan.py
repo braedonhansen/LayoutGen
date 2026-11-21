@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .template import CHANNEL_TRACKS, MAX_CHANNEL_TRACKS, MIN_CHANNEL_TRACKS
+
 ROWS = ("nmos", "pmos")
 LAYERS = ("li1", "met1")
 _TRACK = re.compile(r"[cnp]\d+$")
@@ -64,10 +66,12 @@ class Plan:
     columns: list[Column] = field(default_factory=list)
     routes: list[Route] = field(default_factory=list)
     pins: list[Pin] = field(default_factory=list)
+    tracks: int = CHANNEL_TRACKS    # channel tracks (`tracks N` header line)
 
     def as_dict(self) -> dict:
         return {
             "cell": self.name, "inputs": self.inputs, "outputs": self.outputs,
+            **({"tracks": self.tracks} if self.tracks != CHANNEL_TRACKS else {}),
             "columns": [{"col": c.index, "kind": c.kind,
                          **{r: c.nets[r] for r in ROWS},
                          **({"contact": [r for r in ROWS if c.contact[r]]} if c.kind == "sd" else {}),
@@ -156,6 +160,18 @@ def parse(text: str) -> Plan:
                 if not names:
                     raise PlanSyntaxError(line, f"'{cmd}' needs at least one net")
                 setattr(plan, "inputs" if cmd == "in" else "outputs", names)
+        elif cmd == "tracks":
+            if cmd in seen_header:
+                raise PlanSyntaxError(line, "duplicate 'tracks' line")
+            seen_header.add(cmd)
+            if plan.columns or plan.routes or plan.pins:
+                raise PlanSyntaxError(line, "'tracks' must come before the first col")
+            if len(toks) != 2 or not toks[1].isdigit():
+                raise PlanSyntaxError(line, "tracks needs one integer")
+            n = int(toks[1])
+            if not MIN_CHANNEL_TRACKS <= n <= MAX_CHANNEL_TRACKS:
+                raise PlanSyntaxError(line, f"tracks {n} outside {MIN_CHANNEL_TRACKS}..{MAX_CHANNEL_TRACKS}")
+            plan.tracks = n
         elif cmd == "col":
             plan.columns.append(_column(toks, line, len(plan.columns)))
         elif cmd == "route":
@@ -181,6 +197,8 @@ def parse(text: str) -> Plan:
 def dumps(plan: Plan) -> str:
     """Write a plan back to the line format (single-space separated)."""
     out = [f"cell {plan.name}", "in " + " ".join(plan.inputs), "out " + " ".join(plan.outputs)]
+    if plan.tracks != CHANNEL_TRACKS:
+        out.append(f"tracks {plan.tracks}")
     for c in plan.columns:
         parts = [f"col {c.index} {c.kind}"]
         for row, key in zip(ROWS, ("n", "p")):

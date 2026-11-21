@@ -164,3 +164,120 @@ def test_split_gate_column():
     assert check(adjacent, netlist).codes() == {"split-order"}
     no_side = base + "pin A gate:1 c0\npin B gate:1p c2\n"
     assert "gate-side" in check(no_side, netlist).codes()
+
+
+# -- channel tracks per plan ---------------------------------------------------
+
+from cellgym.dsl.template import (CHANNEL_NAMES, CHANNEL_TRACKS, MAX_CHANNEL_TRACKS,
+                                  MIN_CHANNEL_TRACKS, layout_for_netlist)
+from cellgym.render.render import render
+
+
+def with_tracks(text, n):
+    return mutate(text, "\ncol 0", f"\ntracks {n}\ncol 0")
+
+
+def test_tracks_default_is_three_and_unwritten():
+    text, nl = load("aoi21")
+    plan = parse(text)
+    assert plan.tracks == CHANNEL_TRACKS == 3 and CHANNEL_NAMES == ("c0", "c1", "c2")
+    assert "tracks" not in dumps(plan) and "tracks" not in plan.as_dict()
+    lay = layout_for_netlist(nl)
+    assert lay == layout_for_netlist(nl, 3)
+    assert lay.channel_tracks == 3 and lay.channel_names == CHANNEL_NAMES
+    explicit = parse(with_tracks(text, 3))
+    assert dumps(explicit) == dumps(plan)
+    assert render(explicit, nl).gds() == render(plan, nl).gds()
+
+
+@pytest.mark.parametrize("n", [2, 4, 5])
+def test_tracks_parse_validate_render(n):
+    text, nl = load("aoi21")       # aoi21 routes on c0/c1 only, so it fits 2 tracks
+    if n == 2:
+        text = text.replace(" c2", " c1")
+    base = render(parse(text), nl)
+    plan = parse(with_tracks(text, n))
+    assert plan.tracks == n and plan.as_dict()["tracks"] == n
+    assert f"\ntracks {n}\ncol 0 " in dumps(plan) and parse(dumps(plan)).tracks == n
+    rep = validate(plan, nl)
+    assert rep.ok, str(rep)
+    lay = rep.layout
+    assert lay.channel_tracks == n == len(lay.channel_k)
+    assert lay.channel_names == tuple(f"c{i}" for i in range(n))
+    assert lay.has_track(f"c{n - 1}") and not lay.has_track(f"c{n}")
+    ref = layout_for_netlist(nl)
+    assert (lay.n_tracks, lay.p_tracks) == (ref.n_tracks, ref.p_tracks)
+    assert lay.height == pytest.approx(ref.height + 0.34 * (n - 3))
+    cell = render(plan, nl)
+    assert cell.height_nm - base.height_nm == 340 * (n - 3)
+    assert cell.width_nm == base.width_nm
+
+
+def test_tracks_uses_the_extra_track():
+    text, nl = load("aoi21")
+    assert "track-missing" in check(mutate(text, "li1  c1", "li1  c4"), nl).codes()
+    assert check(with_tracks(mutate(text, "li1  c1", "li1  c4"), 5), nl).ok
+    assert "track-missing" in check(with_tracks(text, 2).replace("li1  c1", "li1  c2"), nl).codes()
+
+
+@pytest.mark.parametrize("line, msg", [
+    (f"tracks {MIN_CHANNEL_TRACKS - 1}", "outside"), (f"tracks {MAX_CHANNEL_TRACKS + 1}", "outside"),
+    ("tracks", "one integer"), ("tracks x", "one integer"), ("tracks 4 5", "one integer"),
+    ("tracks 4\ntracks 4", "duplicate"),
+])
+def test_tracks_line_errors(line, msg):
+    text, _ = load("aoi21")
+    with pytest.raises(PlanSyntaxError, match=msg):
+        parse(mutate(text, "\ncol 0", f"\n{line}\ncol 0"))
+
+
+def test_tracks_line_must_precede_columns():
+    text, _ = load("aoi21")
+    with pytest.raises(PlanSyntaxError, match="before the first col"):
+        parse(mutate(text, "\ncol 1", "\ntracks 4\ncol 1"))
+
+
+def test_layout_rejects_out_of_range_tracks():
+    with pytest.raises(ValueError):
+        layout(0.42, 0.63, MAX_CHANNEL_TRACKS + 1)
+    with pytest.raises(ValueError):
+        layout(0.42, 0.63, MIN_CHANNEL_TRACKS - 1)
+
+
+def _dev(name, kind, gate, drain, source, w):
+    model = "sky130_fd_pr__nfet_01v8" if kind == "nmos" else "sky130_fd_pr__pfet_01v8_hvt"
+    return {"name": name, "type": kind, "model": model, "gate": gate, "drain": drain, "source": source,
+            "bulk": "VNB" if kind == "nmos" else "VPB", "w": w, "l": 0.15}
+
+
+NAND2 = {"id": "nand2", "inputs": ["A", "B"], "ports": ["A", "B", "OUT", "VDD", "VSS", "VPB", "VNB"],
+         "nets": ["A", "B", "OUT", "VDD", "VSS", "VPB", "VNB", "n1"],
+         "devices": [_dev("MN1", "nmos", "A", "OUT", "n1", 0.84), _dev("MN2", "nmos", "B", "n1", "VSS", 0.84),
+                     _dev("MP1", "pmos", "A", "OUT", "VDD", 0.63), _dev("MP2", "pmos", "B", "OUT", "VDD", 0.63)]}
+
+
+def nand2_split(tracks, tb, ta, out="li1 c0"):
+    """NAND2 with column 1 split: NMOS B contact on c{tb}, PMOS A contact on c{ta}."""
+    hdr = "" if tracks == 3 else f"tracks {tracks}\n"
+    return (f"cell nand2\nin A B\nout OUT\n{hdr}col 0 sd n=VSS* p=VDD*\ncol 1 g n=B p=A\ncol 2 sd n=n1 p=OUT*\n"
+            "col 3 g n=A p=-\ncol 4 sd n=OUT* p=OUT*\ncol 5 g n=- p=B\ncol 6 sd n=- p=VDD*\n"
+            f"route A met1 c{ta} gate:1p gate:3\nroute B met1 c{tb} gate:1n gate:5\n"
+            f"route OUT {out} nmos:4 pmos:2 pmos:4\npin A gate:3\npin B gate:5\npin OUT nmos:4\n")
+
+
+@pytest.mark.parametrize("tracks", [2, 3, 4, 5, 6])
+def test_split_contacts_need_two_tracks_between(tracks):
+    from cellgym.check import check as fast_check
+    for tb in range(tracks):
+        for ta in range(tracks):
+            rep = check(nand2_split(tracks, tb, ta), NAND2)
+            assert ("split-order" in rep.codes()) == (ta - tb < 2), (tb, ta, str(rep))
+            if ta - tb >= 2:
+                assert rep.ok, str(rep)
+                res = fast_check(render(parse(nand2_split(tracks, tb, ta)), NAND2), NAND2)
+                assert res.ok, (tb, ta, res.summary())
+
+
+def test_split_order_message_unchanged_at_three_tracks():
+    rep = check(nand2_split(3, 0, 1), NAND2)
+    assert "column 1: split contacts must be NMOS on c0, PMOS on c2" in str(rep)

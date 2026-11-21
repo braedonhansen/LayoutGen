@@ -101,6 +101,19 @@ Why 3 channel tracks: the half adder has no legal routing with 2, 116 with 3,
 and 2,064 with 4. Going from 3 to 4 tracks costs 0.34 µm on every cell to save
 two compaction spacings on that example.
 
+**Channel tracks per plan (`tracks N`, additive).** 3 is the default, not a
+limit: a plan may carry one optional header line `tracks N` after the
+`cell`/`in`/`out` lines and before the first `col`, with N from 1 to 8
+(`MIN_CHANNEL_TRACKS`..`MAX_CHANNEL_TRACKS` in `template.py`). The channel then
+has tracks `c0…c{N-1}`, PMOS diffusion starts 0.32 above `c{N-1}`, and the cell
+is 0.34 µm taller (or shorter) per track than at 3; row tracks `n*`/`p*` keep
+their count and numbering. A plan without the line is exactly a 3-track plan,
+and writers omit the line when N = 3. Every rule below reads "c0…c2" as
+"c0…c{N-1}"; the split-contact rule becomes "the PMOS contact at least 2 tracks
+above the NMOS contact", so a split column needs N ≥ 3. A large cell that has
+no legal routing at 3 tracks can trade height for routability
+(`baselines.common.route_min_tracks` takes the smallest N that routes).
+
 Consequences:
 
 - No device-width cap from the template; the sizing algorithm is free of one.
