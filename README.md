@@ -73,6 +73,12 @@ validator and renderer (M2), fast checker audited against ground truth (M3),
 benchmark splits, scorer, baselines, human reference and static gallery (M4).
 Next: a learned plan generator trained against the fast checker.
 
+In progress on branch `m4-benchmark` (not part of v0.1): a learned step-wise placement policy
+(`cellgym/llm`), channel tracks as a per-plan parameter (`tracks N`, default 3; see
+[`cellgym/dsl/SPEC.md`](cellgym/dsl/SPEC.md)) and an area objective against an Euler reference routed the
+same way. Run notes, with what each model was trained on and tested on:
+[`bench/llm_runs.md`](bench/llm_runs.md).
+
 Docs: [`cellgym/netlists/README.md`](cellgym/netlists/README.md) (netlists),
 [`cellgym/dsl/SPEC.md`](cellgym/dsl/SPEC.md) (plan format and renderer rules).
 License: Apache-2.0.

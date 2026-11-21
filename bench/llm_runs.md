@@ -152,3 +152,204 @@ Why density: on step05s1's OOD samples, D <= 3 routes 100%, D = 4 routes 34-73%,
   routable one. So the policy's placements are not more congested than Euler's; routing at D >= 4 depends
   on finer structure (which nets share columns, stub and pad positions) than the max-density number.
 - Cost: A40 3.2 h ~= $1.90 (+ ~$0.05 for an H200 pod that billed $3.79/h, not the listed $0.50; killed in 1 min).
+
+## Free channel tracks and an area objective (2026-11-18/19, A40, run7: step05s1 retrained + rl4)
+
+**Trained on** (both models): <= 5 inputs, <= 9 devices per side, stack <= 4, 1 stage, 1 output. SL as step05s1
+(seed 1, retrained). rl4 = SL + 80 steps of RL (32 cells x 8, lr 4e-6, beta 0.02) on in-distribution TRAIN
+topologies only, with the area reward below. **Tested on** sets never seen in SL or RL: 6-10 inputs, 10-12 per
+side, stack 5-6, and six probe sets built for this run (8/10/12/16 inputs at 14/16/20/24 per side; 2-stage and
+3-stage cells, the first test of composition).
+
+### What changed in the formulation
+
+Every remaining OOD miss was `route:no-routing` in a fixed 3-track channel (the Euler reference fails on about
+half of the 10-12-per-side candidates too), so those pass rates measured the template, not the policy.
+
+- **Channel tracks are a per-plan parameter T** (1-8, default 3; optional `tracks N` plan line; SPEC.md). Height
+  moves 0.34 um per track, as it already does with stack depth. At T = 3 everything is byte-identical (all 323
+  Euler plans). Ground truth (KLayout DRC + Magic DRC + Netgen LVS): 199 / 199 routed layouts pass at T = 1-6
+  (40 cells), no disagreement with the fast checker; split contacts keep the "PMOS index - NMOS index >= 2" rule
+  (7 hand-built variants pass). T = 7-8 are allowed but not audited. One renderer fix, independent of T: a met1
+  route with all endpoints in one column drew a pad under the met1 minimum area.
+- **Objective = area.** `route_min_area` routes a placement at the track count with the smallest
+  width x height (first T that routes, then up to 3 more while width still shrinks; matches an exhaustive scan
+  on 283 cells). First-T-that-routes is not the area optimum for ~45% of cells.
+- **The Euler reference gets the same freedom** (`cellgym.llm.arearef`): its placement re-routed with
+  `route_min_area`. Area ratios below are against that. RL reward = max(0.05, 1 + (A_ref - A) / A_ref).
+
+### Results (k = 8, T = 0.7; per-sample / pass@8)
+
+| set | trained up to -> tested | SL, fixed 3 tracks | rl4, fixed 3 tracks | SL, free tracks | rl4, free tracks | SL area / Euler area (mean, best-of-8) | **rl4 area / Euler area** (mean, best-of-8) | mean tracks SL / rl4 |
+|---|---|---|---|---|---|---|---|---|
+| val / test_id | in distribution | 100 / 100 | 100 / 100 | 100 / 100 | 100 / 100 | 1.102, 1.007 / 1.086, 1.011 | 1.056, 1.013 / 1.033, 1.009 | 2.5 / 2.7 |
+| ood6-8 dev | 5 -> 6-8 inputs | 100 / 100 | 100 / 100 | 100 / 100 | 100 / 100 | 1.08-1.09, 1.00-1.01 | 1.05, 1.02-1.03 | 2.4-2.8 / 2.3-2.8 |
+| ood9 / ood10 | 5 -> 9 / 10 inputs | 100 / 100 | 100 / 100 | 100 / 100 | 100 / 100 | 1.088, 1.014 / 1.069, 1.010 | 1.059, 1.029 / 1.038, 1.019 | 2.4, 1.8 / 2.4, 1.7 |
+| oodstack5 dev | stack 4 -> 5 | 77 / 100 | 80 / 97 | 100 / 100 | 100 / 100 | 1.143, 1.030 | 1.086, 1.027 | 3.4 / 3.4 |
+| oodstack6 | stack 4 -> 6 | 83 / 99 | 88 / 98 | 100 / 100 | 100 / 100 | 1.125, 1.026 | 1.084, 1.028 | 3.3 / 3.2 |
+| ooddev10 dev | 9 -> 10 per side | 56 / 98 | 63 / 84 | 100 / 100 | 100 / 100 | 1.178, 1.038 | 1.128, 1.069 | 3.7 / 3.7 |
+| ooddev11 dev | 9 -> 11 per side | 32 / 84 | 38 / 63 | 100 / 100 | 99.3 / 100 | 1.188, 1.058 | 1.176, 1.084 | 4.0 / 4.0 |
+| ooddev12 | 9 -> 12 per side | 21 / 87 | 43 / 80 | 100 / 100 | 100 / 100 | 1.207, 1.053 | 1.129, 1.047 | 4.3 / 4.0 |
+
+Probe sets (k = 4, no Euler reference, so pass and tracks only):
+
+| probe (cells) | trained up to -> tested | SL, fixed 3 tracks | rl4, fixed 3 tracks | SL, free tracks | rl4, free tracks | mean tracks SL / rl4 |
+|---|---|---|---|---|---|---|
+| i8d14 (20) | 5 & 9 -> 8 inputs & 14 per side | 29 / 70 | 35 / 55 | 100 / 100 | 100 / 100 | 4.0 / 4.0 |
+| i10d16 (20) | -> 10 inputs & 16 per side | 18 / 50 | 44 / 60 | 100 / 100 | 100 / 100 | 4.4 / 4.1 |
+| i12d20 (20) | -> 12 inputs & 20 per side, stack 5 | 9 / 30 | 6 / 15 | 100 / 100 | 100 / 100 | 5.0 / 4.8 |
+| i16d24 (10) | -> 16 inputs & 24 per side, stack 5 | 5 / 20 | 0 / 0 | 100 / 100 | 92.5 / 100 | 4.9 / 4.8 |
+| stage2 (30) | 1 -> 2 stages | 83 / 93 | 83 / 90 | 100 / 100 | 100 / 100 | 2.9 / 3.0 |
+| stage3 (30) | 1 -> 3 stages, 1-2 outputs | 36 / 67 | 43 / 67 | 99.2 / 100 | 100 / 100 | 3.9 / 3.9 |
+
+- **The routing wall was the template.** With free tracks the SL-only policy passes 100% per sample on every
+  set (one stage3 sample aside), out to 16 inputs / 24 per side and to 3-stage, 2-output cells, none of which
+  it trained on. Composition (gates driven by internal nets, several outputs) works zero-shot. At a fixed
+  3 tracks the same placements pass 5-29% at 14-24 per side; the Euler placer itself routed 28/30 stage2 and
+  19/30 stage3 cells at 3 tracks.
+- **The cost of size is area, not failure.** Against Euler with the same freedom, SL samples are 7-10% larger
+  in the training range and at 6-10 inputs, 13-14% at stack 5-6, 18-21% at 10-12 per side. Best-of-8 stays
+  within 1-6%. The policy's placements need 3.7-4.3 tracks at 10-12 per side, where the Euler references
+  use 3-5.
+- **Area RL on in-distribution cells transfers to every unseen set, on the mean.** In-distribution val area
+  ratio 1.145 -> 1.081 over 80 steps (monotone, not flat at the end); per-sample area on the unseen sets
+  1.07-1.09 -> 1.04-1.06 (6-10 inputs), 1.13-1.14 -> 1.08-1.09 (stack 5-6), 1.18 / 1.19 / 1.21 ->
+  1.13 / 1.18 / 1.13 (10 / 11 / 12 per side). The reward is dense (no zeros once every placement routes), which
+  is likely why it moves faster than rl2's width reward (val reward 0.855 -> 0.919 here vs 0.731 -> 0.744).
+- **The gain is width, not tracks.** Mean tracks did not move (val 3.28 -> 3.33 in training; unchanged on OOD
+  sets). The policy did not learn to place for fewer tracks.
+- **RL collapsed sampling diversity, and best-of-8 got worse.** Distinct placements per cell (of 8) fell from
+  5.4-7.7 to 2.2-4.1. Best-of-8 area is flat or worse on most sets (ood8 1.011 -> 1.027, ooddev10 1.038 ->
+  1.069, ooddev11 1.058 -> 1.084), and at fixed 3 tracks pass@8 at 10 / 11 per side dropped 98 -> 84 and
+  84 -> 63 even though per-sample pass rose. A system that takes the best of k is not better after this RL;
+  a system that takes one sample is.
+- **New failure after RL: placements that never finish.** rl4 has 5 `cap` episodes (1 each on ood7 and
+  ooddev11, 3 of 40 on i16d24); SL has none.
+
+### Not done / caveats
+
+- A second RL run (rl5: 150 more steps from rl4) was lost at step ~50 when the pod's host dropped; rl4's
+  weights went with it (no volume). Its log to that point showed the per-batch area ratio still falling
+  (about 1.06-1.09) with 8-13 of 32 groups already flat, i.e. more collapse.
+- Probe sets have no Euler area reference, so probe quality is tracks only. i12d20 and i16d24 are at stack 5
+  (20+ per side cannot exist at stack 4), so they mix size with stack.
+- The corpus reference is the narrowest 3-track Euler plan re-routed, not the minimum-area Euler placement,
+  which is slightly generous to the model.
+- `cellgym/synth/tokens.py` (old tiny-model tokenizer) and `cellgym/llm/route_env.py` are not track-aware.
+- Cost: A40 about 4.6 h at $0.59/h, about $2.7 of the $7 cap (billing showed $2.10 when checked; it may lag).
+  An RTX 5090 listed at $0.69/h billed $1.39/h and was deleted within seconds.
+
+### Next
+
+1. Keep diversity through RL: an entropy term over the legal-move distribution (or a stronger KL anchor /
+   lower lr), and select the checkpoint on best-of-k, not the mean. Save checkpoints off the pod.
+2. Make tracks learnable: the policy never sees the channel, so it cannot trade a column for a track. Show the
+   open channel nets in the step state, now that the area reward gives the contrast.
+3. Euler area references for the probe sets (cheap for stage2/3; needs a time-limited search at 16-24 per side).
+
+## Channel-aware state and entropy-regularized area RL (2026-11-20, A40, run10: step05v2 + rl6 + rl7)
+
+**Trained on** (all models): <= 5 inputs, <= 9 devices per side, stack <= 4, 1 stage, 1 output. step05v2 = SL
+as step05s1 (seed 1) with the v2 step state. rl6 = step05v2 + 60 RL steps (32 cells x 8, lr 4e-6, beta 0.02,
+area reward, in-distribution TRAIN topologies only) with an entropy bonus; rl7 = 60 more steps from rl6.
+**Tested on** the same never-seen sets as run7, plus Euler area references for the 2- and 3-stage probes.
+
+### What changed
+
+- **v2 step state** (`CELLGYM_STATE=v2`, default; v1 = the old state): one extra line, `open: A n3 OUT`, the
+  non-rail nets that already appear in a placed column and still appear in an unplaced device, i.e. the nets
+  crossing the frontier. Its length is the channel load there, not the cell size (+12% characters).
+- **Entropy bonus over the legal-move distribution** with an adaptive coefficient (`--ent-target 0.7`:
+  hold 70% of the first batch's per-step entropy; `--ent-coef 0.02`, `--ent-lr 0.3`, clipped at 1.0). Groups
+  with equal rewards now stay in the update so the bonus acts on collapsed cells.
+- **Checkpoint selection** on (mean area + best-of-k area) / 2 (`--select both`).
+- **Probe references** (`arearef --search`): Euler area references for stage2 (30/30) and stage3 (26/30).
+  The Euler search did not finish on any 14-24-per-side probe cell (run at a 20 s limit, 2 GB RAM free), so
+  those sets still have no reference; a heuristic one (best of 2-17 routed random placements) is kept in
+  `out/arearef/<set>.heur.json`, off by default.
+
+### Results (free tracks, k = 8, probes k = 4; area / Euler area as mean, best-of-k)
+
+| set | trained up to -> tested | SL v1 (run7) | SL v2 | rl4 (run7: 80 steps, no entropy, v1) | **rl6 (60 steps, entropy, v2)** |
+|---|---|---|---|---|---|
+| val / test_id | in distribution | 1.102, 1.007 / 1.086, 1.011 | 1.085, 1.002 / 1.069, 1.002 | 1.056, 1.013 / 1.033, 1.009 | 1.053, 0.996 / 1.034, 0.998 |
+| ood6-8 dev | 5 -> 6-8 inputs | 1.08-1.09, 1.00-1.01 | 1.08-1.09, 1.00-1.01 | 1.05, 1.02-1.03 | 1.05-1.06, 1.00 |
+| ood9 / ood10 | 5 -> 9 / 10 inputs | 1.088, 1.014 / 1.069, 1.010 | 1.083, 1.007 / 1.064, 1.004 | 1.059, 1.029 / 1.038, 1.019 | 1.057, 1.002 / 1.046, 1.004 |
+| oodstack5 dev | stack 4 -> 5 | 1.143, 1.030 | 1.130, 1.029 | 1.086, 1.027 | 1.084, 1.017 |
+| oodstack6 | stack 4 -> 6 | 1.125, 1.026 | 1.124, 1.034 | 1.084, 1.028 | 1.096, 1.016 |
+| ooddev10 dev | 9 -> 10 per side | 1.178, 1.038 | 1.166, 1.031 | 1.128, 1.069 | 1.104, 1.010 |
+| ooddev11 dev | 9 -> 11 per side | 1.188, 1.058 | 1.173, 1.040 | 1.176, 1.084 | 1.142, 1.043 |
+| ooddev12 | 9 -> 12 per side | 1.207, 1.053 | 1.203, 1.054 | 1.129, 1.047 | 1.152, 1.041 |
+| stage2 (30) | 1 -> 2 stages | 1.226, 1.106 | 1.214, 1.106 | 1.163, 1.100 | 1.173, 1.077 |
+| stage3 (26 of 30 with a reference) | 1 -> 3 stages, 1-2 outputs | 1.314, 1.190 | 1.341, 1.201 | 1.259, 1.160 | 1.291, 1.144 |
+
+Per-sample pass with free tracks is 100% for SL v2 and rl6 on every set, except stage3 (98.3% / 99.2%).
+rl6 has no `cap` episodes (rl4 had 5). Fixed 3 tracks, per-sample / pass@8, SL v2 -> rl6: stack 5
+76 / 99 -> 80 / 99, stack 6 84 / 100 -> 85 / 99, 10 per side 60 / 97 -> 61 / 95, 11 per side 30 / 84 ->
+41 / 74, 12 per side 21 / 93 -> 28 / 67 (the last two sets are 19 and 15 cells).
+
+- **The v2 state alone changes nothing in SL**: pass, area, tracks and diversity match SL v1 within about a
+  point. Expected, since the SL labels are the same Euler placements.
+- **With the entropy bonus, RL improves the mean and best-of-8 together, on every unseen set.** Best-of-8
+  area is at Euler up to 10 inputs (1.00) and within 1-4% at stack 5-6 and 10-12 per side; rl4 had made
+  best-of-8 worse on most of those sets. The mean is about as good as rl4's with 20 fewer steps.
+  Distinct placements per 8: SL 5.2-7.7, rl4 2.2-4.1, rl6 4.0-6.7.
+- **Composition is the weakest axis on quality.** With a true Euler reference, SL samples are 21-23% larger
+  on 2-stage cells and 31-34% on 3-stage cells (best-of-4 11% and 19-20%); rl6 brings best-of-4 to 8% and
+  14%. Every size axis is at most 20% (mean) and 5% (best-of-8).
+- **Tracks still do not move** (mean tracks unchanged on every set, in training 3.30 -> 3.35), even with
+  the channel visible. RL still improves width only.
+- **The entropy controller oscillated, and the second half bought nothing.** Entropy fell to 43-47% of its
+  start from step ~30 (target 70%), the coefficient climbed from 0.014 to its 1.0 limit, entropy then
+  recovered to 63-69% and the coefficient dropped back to ~0. During the overshoot in-distribution val area
+  went 1.087 -> 1.178 (step 80) -> 1.092 (step 120), never beating step 60, so rl7/best is rl7's starting
+  point (= rl6/last) and its samples are a second draw from the step-60 policy, not a new model.
+- **Confound:** rl4 used the v1 state, so rl4 -> rl6 mixes the entropy bonus with the state change. The state
+  did nothing in SL and tracks did not move, so the bonus is the likelier cause; this run does not prove it.
+
+### Cost and an operations failure
+
+- run10 pod: 13.6 h, **$7.51**, of which the job was 4.9 h (~$2.9). The run finished at 10:50 UTC and the
+  results were pulled automatically, but the pod was not terminated until 19:31 UTC: the turn that handled the
+  completion notification was cut off before its terminate call, and nothing else could stop the pod. About
+  8.6 h (~$5) was idle billing.
+- Session total **$10.20** against a $7 cap (run7 pod $2.68, run10 pod $7.51).
+- No weights were kept: a time-capped download of rl6/best got 91% of the file before the pod was terminated,
+  and the partial file was deleted. step05v2, rl6 and rl7 exist only as samples and logs.
+
+### Next
+
+1. Unattended runs need a terminate that does not depend on a chat turn (a local `runpodctl` in the watcher
+   script, or a pod-side self-terminate). Until then every unattended run carries uncapped idle risk.
+2. Entropy control: a fixed small coefficient or a lower cap (0.05-0.1) and a slower rate; the adaptive
+   rule at lr 0.3 with a 1.0 cap overshoots. 60 steps is where the gain was; more steps need a stable bonus.
+3. Tracks: the reward already pays for fewer tracks and the state shows the channel, yet the policy does not
+   trade a column for a track. Check whether such trades exist at all (does any placement of a cell reach a
+   smaller area with one more column and one less track?) before spending more RL on it.
+4. Composition: stage outputs are named `x1`, `OUT1`, tokens the policy never saw; test whether naming them
+   like internal nets closes part of the 2-3 stage gap, at zero training cost.
+
+### Second draw from the step-60 policy (rl7/best samples, scored 2026-11-20)
+
+rl7 never beat its starting point, so its selected checkpoint is the step-60 policy and its samples are a second
+draw of 8 per cell (believed to be the same weights as rl6/best; not verified, the weights are gone). Area /
+Euler area, mean and best-of-8, rl6 samples -> second draw: in distribution 1.053, 0.996 / 1.034, 0.998 ->
+1.045, 0.991 / 1.031, 0.992; ood6-10 1.05-1.06, 1.00 -> 1.05-1.06, 1.00; stack 5 / 6 1.084, 1.017 /
+1.096, 1.016 -> 1.081, 1.014 / 1.093, 1.015; 10 / 11 / 12 per side 1.104, 1.010 / 1.142, 1.043 /
+1.152, 1.041 -> 1.103, 1.010 / 1.124, 1.018 / 1.153, 1.031. Per-sample pass 100% on every set in both. Means
+agree within 0.01 except 11 per side (0.02, 19 cells). This bounds sampling noise only: it is one training
+run and one seed.
+
+### Operations: unattended pod runs (2026-11-21)
+
+- `cellgym/llm/pod_watch.sh POD IP PORT DONE_MARKER LOCAL_DIR [MAX_HOURS]` runs on the PC, copies result
+  bundles every poll and terminates the pod with `runpodctl pod delete` when the done marker appears, when the
+  host stops answering for ~10 minutes, or at the deadline. It refuses to start if runpodctl cannot read the
+  pod. Launch every unattended run under it; a terminate that waits for a chat turn is what cost 8.6 idle
+  hours on run10.
+- runpodctl 3.1.1 is installed locally. The watcher uses its own key from the environment variable
+  `RUNPOD_API_KEY_LAYOUTGEN` (pods read/write, billing read), mapped to `RUNPOD_API_KEY` for its own calls only;
+  the machine's general `RUNPOD_API_KEY` is for something else and is left alone. Pod read and billing read
+  were verified; the delete call has not been exercised on a real pod yet, so watch the first run that uses it.
+- The watcher still needs the PC awake. Download from a pod to the PC ran at ~4 MB/s (a 1.26 GB model takes
+  ~5 minutes): pull weights worth keeping as soon as they exist.
