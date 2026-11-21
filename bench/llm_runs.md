@@ -353,3 +353,55 @@ run and one seed.
   were verified; the delete call has not been exercised on a real pod yet, so watch the first run that uses it.
 - The watcher still needs the PC awake. Download from a pod to the PC ran at ~4 MB/s (a 1.26 GB model takes
   ~5 minutes): pull weights worth keeping as soon as they exist.
+
+## Is area a width problem or a track problem? (2026-11-21, CPU only, `cellgym/llm/tradeoff.py`)
+
+Question: area RL has never moved the mean track count (rl4, rl6), even with the channel visible in the state.
+Is there anything to learn there? **Policies were trained on** <= 5 inputs, <= 9 per side, stack <= 4; the
+analysis covers val / test_id (in distribution) and the 6-10 input, stack 5-6 and 10-12-per-side sets
+(never trained on).
+
+Method: per cell, pool the distinct placements among 4 x 8 saved samples (step05v2, rl6, step05s1, rl4) plus
+the stored Euler placement (712 cells, 14,211 placements, about 20 per cell; the five 6-10-input sets cut to 60
+cells each), and route every placement at every T = 1..8. Full report: `out/tradeoff/report.md`
+(`python -m cellgym.llm.tradeoff --report`).
+
+- **Area is a width problem, and width is a column-count problem.** Within a cell, area follows the column
+  count (r = 0.93) and width (r = 0.89), not tracks (r = 0.04). Within-cell variance of log area is 116%
+  width, 22% height, -38% covariance: narrower placements tend to need more tracks (r = -0.38).
+- **Column-for-track trades are rare and small.** A placement with more than the fewest columns is the
+  smallest in 20 of 712 cells (2.8%; 14 of them by fewer tracks), worth 0.08% of area averaged over all cells
+  (2.8% where it exists, max 9.5%). One track is 5.7% of the height and one column 4.7% of the width, so a
+  break buys a track at about break-even. On 21 small in-distribution cells with ~300 random legal placements
+  each the answer is the same (1 cell, 0.10% mean).
+- **The policy's gap to the best known placement is columns.** SL 12.3% = width 12.0% x height 0.3%; rl6
+  9.0% = width 8.6% x height 0.4%. On the stack and 10-12-per-side sets the height part is 1.3% and comes with
+  1.3 extra columns (breaks), so removing breaks recovers it; it is not a trade.
+- **Ordering at a fixed column count is a real lever**, about 4% area range among a cell's fewest-column
+  placements, mostly through width.
+- **The best known placement is about 1.5% under the Euler reference** (below it in 45% of cells), so Euler
+  is a slightly soft target.
+- **Column count is a free, instant proxy for area.** Picking, among a cell's 8 samples, those with the
+  fewest columns (no routing; ties averaged) against the routed best-of-8, area / Euler area:
+
+| set | trained up to -> tested | SL mean of 8 | SL fewest-column pick | SL routed best-of-8 | rl6 mean of 8 | rl6 fewest-column pick | rl6 routed best-of-8 |
+|---|---|---|---|---|---|---|---|
+| val / test_id | in distribution | 1.085 / 1.069 | 1.015 / 1.015 | 1.002 / 1.002 | 1.053 / 1.034 | 1.005 / 1.005 | 0.996 / 0.998 |
+| ood6-10 (60 cells each) | 5 -> 6-10 inputs | 1.07-1.09 | 1.010-1.016 | 1.00-1.01 | 1.05-1.06 | 1.006-1.013 | 0.99-1.01 |
+| oodstack5 / 6 | stack 4 -> 5 / 6 | 1.130 / 1.124 | 1.045 / 1.051 | 1.029 / 1.034 | 1.084 / 1.096 | 1.032 / 1.029 | 1.017 / 1.016 |
+| ooddev10 / 11 / 12 | 9 -> 10 / 11 / 12 per side | 1.166 / 1.173 / 1.203 | 1.044 / 1.051 / 1.069 | 1.031 / 1.040 / 1.054 | 1.104 / 1.142 / 1.152 | 1.024 / 1.056 / 1.049 | 1.010 / 1.043 / 1.041 |
+
+  The fewest-column samples include the routed best in 89-100% of cells and sit 1.0-1.7% above it on average.
+
+What this changes:
+
+1. The "make tracks learnable" line is closed: there is no meaningful track lever in this template. The
+   `open:` state line is not needed for it (it did nothing in SL either).
+2. Selection among samples does not need the router. Sample many placements, keep the fewest-column ones,
+   route only those: a larger k costs LM time only.
+3. Breaks are known step by step, so RL can use a dense per-step reward (the plan's potential-based shaping)
+   and search (beam over columns with the policy as prior) can run without routing.
+
+Caveats: the pool is a sample from policies that imitate Euler placements, so "no trade found" is evidence,
+not proof; 27.7% of placements have a T curve truncated at a capped search (this can hide a win by more
+tracks, never by fewer); the multi-stage probes are not in this analysis.
