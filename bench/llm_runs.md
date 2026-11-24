@@ -405,3 +405,35 @@ What this changes:
 Caveats: the pool is a sample from policies that imitate Euler placements, so "no trade found" is evidence,
 not proof; 27.7% of placements have a T curve truncated at a capped search (this can hide a win by more
 tracks, never by fewer); the multi-stage probes are not in this analysis.
+
+## Router-free selection against k (2026-11-24, CPU only, `cellgym/llm/selectk.py`)
+
+HANDOFF step 1, first half. **Policies were trained on** <= 5 inputs, <= 9 per side, stack <= 4 (SL = step05v2,
+RL = rl6); the cells are val / test_id (in distribution) and the never-trained 6-10 input, stack 5-6 and
+10-12-per-side sets (710 cells with an Euler area reference and all 8 samples in the trade-off cache).
+Nothing is routed here: the routed curves come from `out/tradeoff/placements.jsonl`. Per k, averaged over
+random k-subsets of a cell's 8 samples: `fewcol` = the fewest-column samples with ties averaged (no routing),
+`fewroute` = the best of the fewest-column samples (route only those), `best` = routed best-of-k. Area / Euler
+area; full table for k = 1..8: `out/tradeoff/selectk.md` (`python -m cellgym.llm.selectk`).
+
+| group | trained up to -> tested | policy | k=1 | k=2 fewroute / best | k=4 fewroute / best | k=8 fewcol | k=8 fewroute / best | placements routed at k=8 (of distinct) |
+|---|---|---|---|---|---|---|---|---|
+| val / test_id (40) | in distribution | SL | 1.076 | 1.038 / 1.038 | 1.015 / 1.015 | 1.015 | 1.002 / 1.002 | 2.4 of 5.4 |
+| | | rl6 | 1.041 | 1.016 / 1.016 | 1.004 / 1.004 | 1.005 | 0.997 / 0.997 | 2.4 of 4.2 |
+| ood6-10 (300) | 5 -> 6-10 inputs | SL | 1.079 | 1.040 / 1.040 | 1.017 / 1.017 | 1.012 | 1.004 / 1.003 | 2.4 of 6.5 |
+| | | rl6 | 1.053 | 1.028 / 1.027 | 1.012 / 1.012 | 1.011 | 1.002 / 1.002 | 2.4 of 5.3 |
+| stack 5 / 6 (249) | stack 4 -> 5 / 6 | SL | 1.127 | 1.081 / 1.080 | 1.052 / 1.051 | 1.049 | 1.033 / 1.032 | 2.5 of 7.1 |
+| | | rl6 | 1.092 | 1.058 / 1.058 | 1.034 / 1.034 | 1.030 | 1.017 / 1.016 | 2.3 of 5.8 |
+| 10-12 per side (121) | 9 -> 10-12 per side | SL | 1.172 | 1.111 / 1.110 | 1.068 / 1.067 | 1.049 | 1.037 / 1.035 | 1.8 of 7.4 |
+| | | rl6 | 1.117 | 1.069 / 1.068 | 1.039 / 1.038 | 1.032 | 1.021 / 1.019 | 2.1 of 6.2 |
+
+- **Routing only the fewest-column samples loses 0.000-0.002 of area against routing all of them**, at every k
+  and on every set, while routing about a third of the distinct placements (1.8-2.5 of 4-7 at k = 8).
+- **Not routing at all** (average of the fewest-column ties) costs 0.8-1.7% against the routed best at k = 8.
+- **Best-of-k has not levelled off at k = 8.** The step from k = 4 to k = 8 is still 1.3-3.2% for SL and
+  0.7-1.9% for rl6 (largest at stack 5-6 and 10-12 per side). The number routed grows much slower than k
+  (1.0 -> 2.4 from k = 1 to 8), so a larger k costs LM time and little routing.
+- SL at k = 8 (1.002-1.037) is ahead of rl6 at k = 1 (1.041-1.117) on every group and close to rl6 at k = 4:
+  RL and sampling more are partly substitutes; rl6 at k = 8 is still the best point everywhere.
+
+Not shown here: k > 8 (no saved samples; needs the weights, which run11 below keeps) and the 2-3 stage probes.

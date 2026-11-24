@@ -28,6 +28,14 @@ rewards are all equal (no policy-gradient signal: the collapsed ones) still take
 advantage 0, so the bonus and the KL anchor act on them. <out>/ent_state.json (h0, coef, steps) is
 rewritten every step; --ent-state continues from one. --select chooses what "best" means on val.
 
+--break-shape S (0 = off): per-step credit from the diffusion breaks, which are known as each column is
+placed (a break = an sd column placed right after an sd column; columns = devices + 1 + breaks, and area
+follows the column count). Potential-based shaping with potential -c * (breaks so far), c = 1 / (devices
++ 1) = one column's share of the width: the action at step t gets the advantage
+(r + S * c * B_t - group mean r) / group std, B_t = breaks placed BEFORE step t, clipped to +-3. The
+step that makes a break and the steps before it carry its cost; the steps after it do not. The episode
+reward, the logs and the checkpoint selection are unchanged.
+
 Training cells: synth5 corpus cells of the TRAIN topology split only (<= 5 inputs, <= 9 per side,
 stack <= 4), with their Euler width. Selection: in-distribution val (benchmark val + synth val
 topologies), never OOD sets.
@@ -134,6 +142,24 @@ def select_score(v: dict, mode: str):
     if v.get("best_area") is None or v.get("area") is None:
         return None
     return -v["best_area"] if mode == "best_area" else -(v["area"] + v["best_area"]) / 2
+
+
+def breaks_before(cols) -> list[int]:
+    """Per column, the number of diffusion breaks among the columns before it (a break = an sd column
+    directly after an sd column)."""
+    out, b = [], 0
+    for i, c in enumerate(cols):
+        out.append(b)
+        if i and c[0] == "sd" and cols[i - 1][0] == "sd":
+            b += 1
+    return out
+
+
+def step_advantages(adv: float, cols, n_steps: int, n_devices: int, std: float, shape: float, clip: float = 3.0):
+    """Per-step advantages of one episode under break shaping (see the module docstring); adv is the
+    episode's normalized advantage, std its group's reward std."""
+    c = shape / (n_devices + 1) / (std + 1e-4)
+    return [max(-clip, min(clip, adv + c * b)) for b in breaks_before(cols)[:n_steps]]
 
 
 def distinct_per_group(cols_list, group: int) -> float:
@@ -257,14 +283,16 @@ class Policy:
         return lp, torch.zeros(len(seqs), device=x.device).index_add(0, row, e)
 
     def update(self, episodes, micro=48, ent_coef=0.0):
-        """episodes: [(advantage, [(state, action)])]; one gradient step. Returns (loss, mean
+        """episodes: [(advantage, [(state, action)])], the advantage one number per episode or a list
+        with one per step; one gradient step. Returns (loss, mean
         logp - logp_ref, mean over episodes of the mean per-step entropy). ent_coef > 0 adds
         -ent_coef * that entropy to the loss."""
         pairs, w, we = [], [], []
         for adv, steps in episodes:
-            for s, a, tr in steps:
+            advs = adv if isinstance(adv, (list, tuple)) else [adv] * len(steps)
+            for (s, a, tr), ad in zip(steps, advs):
                 pairs.append((s, a, tr))
-                w.append(adv / len(steps))
+                w.append(ad / len(steps))
                 we.append(1.0 / len(steps))
         n_ep = max(1, len(episodes))
         tot, kl_sum, ent_sum = 0.0, 0.0, 0.0
@@ -367,6 +395,8 @@ def main(argv=None) -> int:
     ap.add_argument("--step-offset", type=int, default=0, help="added to the step numbers in logs and checkpoint names")
     ap.add_argument("--select", choices=("reward", "best_area", "both"), default="reward",
                     help="val criterion for <out>/best: mean reward, best-of-k area, or the mean of mean and best area")
+    ap.add_argument("--break-shape", type=float, default=0.0,
+                    help="per-step break shaping strength (0 = off, 1 = one column's width share per earlier break)")
     ap.add_argument("--keep-ckpts", action="store_true", help="also save every eval checkpoint as <out>/ckpt_<step>")
     a = ap.parse_args(argv)
     if a.select != "reward" and a.reward != "area":
@@ -441,8 +471,13 @@ def main(argv=None) -> int:
                 else:
                     adv = (rs - rs.mean()) / (rs.std() + 1e-4)
                 for j in range(a.group):
-                    steps = ro[g * a.group + j][2]
-                    if steps:
+                    _, cols, steps = ro[g * a.group + j]
+                    if not steps:
+                        continue
+                    if a.break_shape > 0 and float(rs.std()) >= 1e-6:
+                        eps.append((step_advantages(float(adv[j]), cols, len(steps), len(allc[ids[g]][0]["devices"]) // 2,
+                                                    float(rs.std()), a.break_shape), steps))
+                    else:
                         eps.append((float(adv[j]), steps))
             loss, kl, ent = pol.update(eps, ent_coef=ent_coef) if eps else (0.0, 0.0, None)
             coef_used = ent_coef

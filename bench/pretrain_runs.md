@@ -35,6 +35,9 @@ python -m cellgym.synth.train --data DIR/plans.jsonl --out DIR/runN --steps 4000
 python -m cellgym.synth.eval --ckpt DIR/runN/best.pt --splits val test_id --k 8 --temperature 0.8 --constrained
 python -m cellgym.synth.eval --ckpt DIR/runN/best.pt --splits val test_id --k 1 --temperature 0 --constrained --tag greedy_constrained
 ```
+Corpus note (2026-11-24): the generate line above is run3's (synth6). synth5 (run2 and every later run) was built
+with `--renames 6` and the default 4 placements; rebuilt that way on another machine it gives the same
+31,184 plans / 1,934 topologies. With `--placements 3` it gives 24,616 / 1,932.
 Training has no resume. Raw results: `out/*/run*/eval_*.json`, `log.jsonl` (gitignored).
 
 ## RL (GRPO from run2)
