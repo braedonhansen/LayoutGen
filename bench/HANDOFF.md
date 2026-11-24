@@ -1,33 +1,42 @@
-# Handoff: continuing on another machine (written 2026-11-24)
+# Handoff: continuing on another machine (written 2026-11-24, updated the same day after the local session)
 
 Branch `m4-benchmark`. Everything needed to pick the work up is in this repo; nothing below depends on
 the machine it was written on. Full results and reasoning: [`llm_runs.md`](llm_runs.md) (read the last
 three sections first). The project plan and open-item list live in the private notebook doc on claude.ai,
 not in this repo.
 
-## Where the work stands
+## Where the work stands (updated 2026-11-24, end of the local 3090 session)
 
-- **Trained on:** <= 5 inputs, <= 9 devices per side, stack <= 4, 1 stage, 1 output.
-  **Tested on:** 6-10 inputs, stack 5-6, 10-12 per side, probes up to 16 inputs / 24 per side, 2-3 stages.
-  The top rung of every axis stays unseen; walls are fixed by representation, never by training on them.
-- The routing wall was the fixed 3-track template. With channel tracks as a plan parameter (1-8) every
-  set passes, and the objective is area (width x height at the area-optimal track count).
-- Step-wise Qwen2.5-0.5B placement policy + classical router. Entropy-regularized area RL (rl6) improves
-  mean and best-of-8 on every set, including the unseen ones. Composition (2-3 stages) is the weakest axis.
-- Area is a column-count problem (r = 0.93); there is no track lever. The fewest-column sample of 8, picked
-  without routing, lands 1.0-1.7% above the routed best-of-8.
+- **Current model: `step05v2s`** (SL only, Qwen2.5-0.5B step policy, v2 state; weights in `out/llm/step05v2s/model`
+  on the 3090 PC, not in the repo). **Trained on:** <= 5 inputs, <= 9 devices per side, stack <= 4, 1-2 stages,
+  1 output. **Tested on:** 6-10 inputs, stack 5-6, 10-12 per side, probes up to 16 inputs / 24 per side,
+  3 stages with 1-2 outputs. The top rung of every axis stays unseen.
+- **Deployment recipe: sample k = 32, route only the fewest-column placements** (`score --select fewcol --k 32`;
+  3-5 routed per cell). With it plain SL is at or below Euler area on 6-10 inputs, stack 5-6 and 10-11 per
+  side, 1.018 at 12 per side, and step05v2s is 1.005 on 2-stage and 1.017 on unseen 3-stage cells.
+- Everything runs locally now (`env/LOCAL.md`); no pod is needed. Scripts `cellgym/llm/run11..run15_2026_11_24.sh`.
+- Findings of this session (details in `llm_runs.md`, last six sections):
+  - RL with an entropy bonus is not worth it at k > 8: fixed coefficient 0.05 collapses diversity (rl8), 0.3 and
+    0.6 diverge (rl10, rl11), per-step break shaping is neutral (rl9), and "SL, sample more" beats every RL
+    model at k = 32. rl6's good result came from its controller's late push, not from a small bonus.
+  - The composition gap was diffusion breaks at stage boundaries. More samples and a familiar spelling of the
+    stage nets help a little; putting 2-stage cells in the corpus (`cellgym/llm/stagecorpus.py`) fixes most of
+    it, carries to 3 stages, and costs nothing on single-stage cells.
+- Area is a column-count problem (r = 0.93); there is no track lever.
 
 ## Next steps (in order)
 
-1. **Free, CPU only, about an hour.** Router-free selection (sample, keep the fewest-column placements,
-   route only those) and a per-step break reward in `cellgym/llm/rl.py` (potential-based shaping; breaks
-   are known as each column is placed). Measure best-of-k against k = 1..8 on the saved samples; the routes
-   are cached in `out/tradeoff/placements.jsonl` (restored below).
-2. **Paid, about 5 h on an A40, about $3. Needs a new budget.** SL + 60 RL steps with a *fixed small*
-   entropy coefficient (the adaptive controller overshot in rl7), the per-step reward, larger k, and the
-   weights pulled to the PC this time. Launch under `cellgym/llm/pod_watch.sh`.
-3. Open: Euler area references for the 14-24-per-side probes (needs a compact search); rerun the trade-off
-   analysis on the 2-3 stage probes; second seed; rl4 -> rl6 confounds the entropy term with the state change.
+1. The remaining gap is the **mean** (k = 1): 6-19% above Euler on unseen sets, 10% / 18% on 2 / 3 stages. If a
+   single-shot placement matters, the RL objective should be the deployed one (best of k after fewest-column
+   selection) or the SL labels should be filtered to minimal-area placements; the entropy bonus is a dead end.
+2. Euler area references for the 14-24-per-side probes (needs a compact search); without them those probes
+   only report pass rates.
+3. Second seed for step05v2 / step05v2s: every comparison here is one seed, and 15-30 cell sets move by 0.02
+   between draws.
+4. Multi-output training cells (the 3-stage probe's `OUT1 OUT2` are still unseen tokens), then a 4-stage probe
+   as the new top rung.
+5. Ground truth (KLayout + Magic + Netgen) is not installed on the 3090 PC: audits of the fast checker still
+   need an Ubuntu 22.04 environment (`env/SETUP.md`).
 
 ## Restore the local state
 

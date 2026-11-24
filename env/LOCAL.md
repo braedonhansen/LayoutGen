@@ -64,3 +64,13 @@ identical to the local rebuild. Each `out/<set>_build.txt` records that set's ge
 
 Local runs: `cellgym/llm/run11_2026_11_24.sh` (SL + two 60-step RL runs, weights kept under
 `out/llm`). Keep the PC from sleeping while it runs.
+
+Later the same day: `run12` (k = 32 sampling, fewest-column scoring), `run13` (entropy coefficient sweep),
+`run14` (stage probes at k = 32 under three spellings) and `run15` (SL on synth5 + the 2-stage corpus,
+`out/llm/step05v2s`, 91 min). Rebuild the 2-stage corpus (6 min at 8 jobs):
+
+```bash
+python -m cellgym.llm.stagecorpus --out out/synth2s --stages 2 --count 2500 --per-side 3:9 --seed 9100   --exclude out/probe/stage2 out/probe/stage3 --jobs 8      # 7,975 plans, 2,413 cells
+```
+
+Do not edit a `run*.sh` while it is running: bash reads the file as it goes and the run breaks.
