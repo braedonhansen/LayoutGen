@@ -437,3 +437,46 @@ area; full table for k = 1..8: `out/tradeoff/selectk.md` (`python -m cellgym.llm
   RL and sampling more are partly substitutes; rl6 at k = 8 is still the best point everywhere.
 
 Not shown here: k > 8 (no saved samples; needs the weights, which run11 below keeps) and the 2-3 stage probes.
+
+## Local run11: fixed entropy coefficient and per-step break shaping (2026-11-24, RTX 3090, `run11_2026_11_24.sh`)
+
+**Trained on** (all models): <= 5 inputs, <= 9 devices per side, stack <= 4, 1 stage, 1 output, v2 state.
+step05v2 = the run10 SL recipe retrained locally (seed 1, 1053 optimizer steps, 76 min). rl8 = step05v2 + 60 RL
+steps as rl6 (32 cells x 8, lr 4e-6, beta 0.02, area reward, `--select both`) but with a **fixed** entropy
+coefficient 0.05 instead of the adaptive controller. rl9 = rl8's recipe plus `--break-shape 1` (per-step
+advantage bonus for the steps taken before each diffusion break). Each RL run took about 1.6 h.
+**Tested on** the same never-seen sets as run10. Weights are kept under `out/llm/{step05v2,rl8,rl9}` on the 3090 PC.
+
+Area / Euler area as mean, best-of-k (free tracks, k = 8, stage probes k = 4):
+
+| set | trained up to -> tested | SL v2 local | rl8 (fixed 0.05) | rl9 (+ break shaping) | rl6 (pod, adaptive) |
+|---|---|---|---|---|---|
+| val / test_id | in distribution | 1.098, 1.002 / 1.079, 0.994 | 1.044, 1.013 / 1.036, 1.000 | 1.057, 1.011 / 1.023, 0.998 | 1.053, 0.996 / 1.034, 0.998 |
+| ood6 / ood7 / ood8 dev | 5 -> 6 / 7 / 8 inputs | 1.085, 0.999 / 1.077, 1.002 / 1.073, 1.008 | 1.057, 1.013 / 1.053, 1.011 / 1.054, 1.019 | 1.053, 1.013 / 1.049, 1.014 / 1.055, 1.023 | 1.05-1.06, 1.00 |
+| ood9 / ood10 | 5 -> 9 / 10 inputs | 1.078, 1.007 / 1.064, 1.009 | 1.053, 1.021 / 1.042, 1.012 | 1.052, 1.023 / 1.040, 1.016 | 1.057, 1.002 / 1.046, 1.004 |
+| oodstack5 dev | stack 4 -> 5 | 1.128, 1.017 | 1.079, 1.025 | 1.076, 1.026 | 1.084, 1.017 |
+| oodstack6 | stack 4 -> 6 | 1.116, 1.018 | 1.069, 1.018 | 1.075, 1.024 | 1.096, 1.016 |
+| ooddev10 dev | 9 -> 10 per side | 1.163, 1.028 | 1.094, 1.033 | 1.107, 1.031 | 1.104, 1.010 |
+| ooddev11 dev (19) | 9 -> 11 per side | 1.179, 1.045 | 1.136, 1.068 | 1.132, 1.066 | 1.142, 1.043 |
+| ooddev12 (15) | 9 -> 12 per side | 1.208, 1.063 | 1.158, 1.047 | 1.136, 1.046 | 1.152, 1.041 |
+| stage2 (30) | 1 -> 2 stages | 1.227, 1.101 | 1.127, 1.076 | 1.118, 1.073 | 1.173, 1.077 |
+| stage3 (with a reference) | 1 -> 3 stages | 1.346, 1.173 | 1.239, 1.152 | 1.239, 1.150 | 1.291, 1.144 |
+
+Per-sample pass is 100% everywhere except i12d20 (SL 98.8, rl9 98.8) and stage3 (SL 99.2, rl8 98.3, rl9 95.0:
+six `route:no-routing` samples); pass@k is 100% on every set for all three.
+
+- **The local SL model reproduces the pod's SL v2** (run10 table) within about a point, mean and best-of-8.
+- **A fixed coefficient of 0.05 does not hold diversity.** rl8 improves the mean on every set (as much as rl6,
+  more on the stage probes) but best-of-8 gets about 1% worse than SL on the in-distribution and 6-10 input
+  sets, the rl4 pattern. Training entropy fell from 0.29 to 0.13 (43%) and distinct placements per 8 from 7.3 to
+  4.9; on the 96 eval cells distinct went 3.76 -> 2.58.
+- **rl6's advantage came from its controller's late push, not from a small bonus.** rl6's log follows rl8's to
+  step 40 (entropy 0.13, eval distinct 2.35); its coefficient then averaged 0.21 over steps 40-50 and 0.74 over
+  steps 50-60, and eval distinct went back to 3.33 with best-of-8 1.039 -> 1.026. So the useful coefficient is
+  in the 0.2-1.0 range; "fixed small" (the run10 recommendation) was the wrong reading of that run.
+- **Break shaping changes nothing measurable.** rl9 against rl8 differs by at most 0.01 on every set with 75+
+  cells, in both directions; training curves (area, entropy, distinct) coincide. Its only visible effect is
+  more failed samples on stage3. Not worth keeping on.
+- Tracks again did not move (training mean 3.33 -> 3.37).
+
+Next (run13): the same 60 steps with a fixed coefficient of 0.3 and 0.6, no break shaping.
