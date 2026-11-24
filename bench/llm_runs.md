@@ -539,3 +539,38 @@ the SL model (e.g. test_id 1.077, 0.994; ood6 1.084, 1.001), not a new model.
   prize is small: RL has to beat "SL, sample more", which is already at or below Euler.
 - Decision: stop tuning the entropy bonus. If RL is revisited, its objective should be the deployed one (best
   of k after fewest-column selection), not the mean of the samples.
+
+## Composition: more samples and stage-net spelling, no training (2026-11-24, local, `run14_2026_11_24.sh`)
+
+**Trained on**: step05v2 (SL, <= 5 inputs, <= 9 per side, stack <= 4, **1 stage**). **Tested on** the stage probes:
+stage2 (30 cells, 6-11 per side, 1 output) and stage3 (30 cells, 8-16 per side, 1-2 outputs; 26 have a Euler
+area reference). 32 samples per cell, under three spellings of the nets that connect stages
+(`cellgym/llm/renameprobe.py`; cell ids and references unchanged): `x1 x2` as generated (never seen in
+training), the next unused input letters, and `n31 n32` (internal-net style). Each spelling is its own draw.
+
+Area / Euler area as mean, best-of-k with every sample routed; the last column routes only the fewest-column
+placements among 32:
+
+| set | trained up to -> tested | spelling | k = 4 | k = 32 | fewest-column, k = 32 |
+|---|---|---|---|---|---|
+| stage2 | 1 -> 2 stages | x1 (as generated) | 1.202, 1.086 | 1.219, 1.026 | 1.026 |
+| | | letters | 1.212, 1.099 | 1.196, 1.021 | 1.021 |
+| | | n31 | 1.205, 1.095 | 1.206, 1.015 | 1.016 |
+| stage3 | 1 -> 3 stages | x1 (as generated) | 1.321, 1.161 | 1.321, 1.088 | 1.090 |
+| | | letters | 1.269, 1.156 | 1.272, 1.048 | 1.057 |
+| | | n31 | 1.299, 1.161 | 1.285, 1.055 | 1.058 |
+
+Diffusion breaks per placement (stage2 / stage3): Euler label 0.8 / -; sample mean 2.82 / 5.34 (x1),
+2.54 / 4.80 (letters), 2.62 / 5.06 (n31); fewest of 32: 1.00 / 2.40, 1.00 / 2.23, 0.97 / 2.07.
+Per-sample pass 97.8-99.9% at k = 32 (all failures `route:no-routing`), pass@k 100% everywhere.
+
+- **The composition gap is diffusion breaks.** On stage2 the best of 4 SL samples has more breaks than the
+  Euler placement on 18 of 30 cells and fewer on none.
+- **Sampling 32 closes most of the best-of-k gap**: 8.6% -> 2.6% (2 stages) and 16.1% -> 8.8% (3 stages),
+  and fewest-column selection finds the same placements (within 0.01).
+- **Spelling matters on 3-stage cells, not on 2-stage cells.** Either familiar spelling takes the 3-stage
+  best-of-32 from 1.088 to about 1.05 and the mean from 1.32 to 1.27-1.29; on stage2 all three are within
+  0.01 at k = 32 (30 cells, one draw each, so differences under about 0.02 are noise). The mean stays 20-30%
+  above Euler under every spelling: a single-stage model does not place a multi-stage cell well on average.
+
+Next (run15): put 2-stage cells in the training corpus and keep 3 stages as the unseen axis.
