@@ -480,3 +480,40 @@ six `route:no-routing` samples); pass@k is 100% on every set for all three.
 - Tracks again did not move (training mean 3.33 -> 3.37).
 
 Next (run13): the same 60 steps with a fixed coefficient of 0.3 and 0.6, no break shaping.
+
+## Larger k with fewest-column selection (2026-11-24, local, `run12_2026_11_24.sh`)
+
+**Trained on**: as run11 (<= 5 inputs, <= 9 devices per side, stack <= 4, 1 stage). **Tested on** the never-seen
+sets below. One fresh draw of 32 placements per cell from each model; only the fewest-column distinct placements
+among the first k are routed (`score --select fewcol --k`), and the best routed area is reported as area / Euler
+area. Sampling 32 per cell over all 13 sets took 35-70 min per model on the 3090, scoring 17-30 min for all three k.
+
+| set | trained up to -> tested | SL v2: k=8 / 16 / 32 | rl8: k=8 / 16 / 32 | rl9: k=8 / 16 / 32 |
+|---|---|---|---|---|
+| val (15) | in distribution | 1.020 / 0.998 / 0.997 | 0.997 / 0.995 / 0.995 | 1.016 / 1.016 / 1.008 |
+| test_id (25) | in distribution | 1.010 / 0.994 / 0.988 | 1.005 / 0.994 / 0.994 | 1.004 / 1.002 / 1.000 |
+| ood6 dev | 5 -> 6 inputs | 1.002 / 0.992 / 0.987 | 1.011 / 1.005 / 1.002 | 1.019 / 1.012 / 1.008 |
+| ood7 dev | 5 -> 7 inputs | 1.004 / 0.994 / 0.987 | 1.007 / 1.003 / 0.997 | 1.015 / 1.010 / 1.004 |
+| ood8 dev | 5 -> 8 inputs | 1.005 / 1.000 / 0.992 | 1.015 / 1.010 / 1.005 | 1.018 / 1.012 / 1.004 |
+| ood9 | 5 -> 9 inputs | 1.006 / 0.998 / 0.991 | 1.019 / 1.013 / 1.007 | 1.022 / 1.018 / 1.013 |
+| ood10 | 5 -> 10 inputs | 1.009 / 1.002 / 0.998 | 1.013 / 1.007 / 1.004 | 1.014 / 1.011 / 1.009 |
+| oodstack5 dev | stack 4 -> 5 | 1.016 / 0.996 / 0.987 | 1.021 / 1.014 / 1.006 | 1.027 / 1.014 / 1.009 |
+| oodstack6 | stack 4 -> 6 | 1.021 / 1.007 / 0.996 | 1.019 / 1.009 / 1.002 | 1.025 / 1.015 / 1.008 |
+| ooddev10 dev | 9 -> 10 per side | 1.024 / 1.006 / 0.998 | 1.029 / 1.026 / 1.017 | 1.034 / 1.024 / 1.016 |
+| ooddev11 dev (19) | 9 -> 11 per side | 1.029 / 1.017 / 1.001 | 1.081 / 1.063 / 1.039 | 1.061 / 1.049 / 1.043 |
+| ooddev12 (15) | 9 -> 12 per side | 1.069 / 1.046 / 1.018 | 1.059 / 1.038 / 1.020 | 1.024 / 1.021 / 1.017 |
+
+Placements routed per cell at k = 8 / 16 / 32: SL 1.6-2.5 / 2.3-3.3 / 3.0-4.8, rl8 1.5-2.2 / 1.5-2.5 / 1.8-2.9,
+rl9 1.3-2.2 / 1.5-2.7 / 1.8-3.2. Pass is 100% on every set at every k. The stage probes were not sampled at k = 32.
+
+- **Plain SL at k = 32 beats both RL models at k = 32 on every unseen set, and matches or beats Euler on all
+  but 12 per side** (0.987-1.001; 1.018 at 12 per side). SL keeps gaining 0.5-1.5% per doubling of k; the RL
+  models gain about half that, because their extra samples are repeats (routed per cell barely grows).
+- **The cost is small.** 32 samples per cell route only 3-5 placements with fewest-column selection, about what
+  routing all of k = 8 costs, and sampling is the cheap side.
+- **So this RL recipe is not worth its diversity loss at a fixed inference budget above k = 8.** rl8/rl9 are
+  better than SL only at k = 1 (the mean) and roughly level at k = 8. An RL policy would have to keep SL's
+  diversity while raising the mean to be worth deploying over "SL, sample more"; that is what the run13
+  coefficient sweep tests.
+- The first 8 of this draw differ from run11's k = 8 draw by up to 0.02 on the 15-25 cell sets (val SL 1.020
+  here against 1.002 there), which is the draw-to-draw noise at that size; the 75+ cell sets agree within 0.005.
