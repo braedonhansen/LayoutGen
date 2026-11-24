@@ -11,6 +11,13 @@ column cap, or that the router cannot route, fails with that stage. Writes <samp
 against Euler width x the 3-track height); area at the smallest-area track count (route_min_area),
 area against the Euler placement routed the same way (the cellgym.llm.arearef cache, "area/Euler-area";
 "-" for sets with no reference, e.g. probes).
+
+--select fewcol: router-free selection. Per cell only the finished samples with the fewest columns are
+routed, one per distinct placement (area follows the column count; bench/llm_runs.md, "Router-free
+selection against k"). The table's best-of-k column is then the system's result and the per-sample
+columns describe the routed placements only; "routed" in the summary = placements routed per cell.
+--k N scores the first N samples of each cell (sample index < N), so one large sample file gives the
+curve against k.
 """
 
 from __future__ import annotations
@@ -88,6 +95,28 @@ def _score(r):
             (ev.width_nm * h / (we * h3) if we else None))
 
 
+def fewest_column_rows(rows):
+    """Per (set, cell): the finished samples with the fewest columns, one per distinct placement, in
+    file order. A cell with no finished sample keeps its first row (so it still counts as a failure)."""
+    by = defaultdict(list)
+    for r in rows:
+        by[(r["set"], r["cell"])].append(r)
+    out = []
+    for rs in by.values():
+        done = [r for r in rs if r.get("status") == "done" and r.get("cols")]
+        if not done:
+            out.append(rs[0])
+            continue
+        n = min(len(r["cols"]) for r in done)
+        seen = set()
+        for r in done:
+            key = json.dumps(r["cols"])
+            if len(r["cols"]) == n and key not in seen:
+                seen.add(key)
+                out.append(r)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("samples", type=Path)
@@ -98,10 +127,17 @@ def main(argv=None) -> int:
     ap.add_argument("--arearef", type=Path, default=Path("out/arearef"), help="Euler area reference cache (--tracks area)")
     ap.add_argument("--sets", nargs="*", default=None, help="score only these sets")
     ap.add_argument("--tag", default="", help="suffix for the summary file")
+    ap.add_argument("--select", choices=("all", "fewcol"), default="all",
+                    help="fewcol: route only each cell's fewest-column placements")
+    ap.add_argument("--k", type=int, default=0, help="use only the first K samples of each cell (0 = all)")
     a = ap.parse_args(argv)
     rows = [json.loads(l) for l in a.samples.read_text().splitlines()]
     if a.sets:
         rows = [r for r in rows if r["set"] in a.sets]
+    if a.k > 0:
+        rows = [r for r in rows if r.get("sample", 0) < a.k]
+    if a.select == "fewcol":
+        rows = fewest_column_rows(rows)
     extra = [tuple(x.split("=", 1)) for x in a.extra]
     sets = load_sets(sorted({r["set"] for r in rows}), extra)
     from cellgym.llm.congest import density
@@ -150,6 +186,7 @@ def main(argv=None) -> int:
                        [min(v) for v in area[s].values() if v]),
                    **({"area_ref": "euler-area", "area_ref_cells": sum(c in refs.get(s, {}) for c in cs)}
                       if a.tracks == "area" else {}),
+                   "routed_per_cell": n / len(cs),
                    "density_mean": sum(dens[s]) / len(dens[s]) if dens[s] else None,
                    "density_le3": sum(d <= 3 for d in dens[s]) / len(dens[s]) if dens[s] else None,
                    "stages": dict(stages[s].most_common(6))}
