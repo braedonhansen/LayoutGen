@@ -574,3 +574,48 @@ Per-sample pass 97.8-99.9% at k = 32 (all failures `route:no-routing`), pass@k 1
   above Euler under every spelling: a single-stage model does not place a multi-stage cell well on average.
 
 Next (run15): put 2-stage cells in the training corpus and keep 3 stages as the unseen axis.
+
+## Composition as a trained axis: 2-stage cells in the corpus (2026-11-24, local, `run15_2026_11_24.sh`)
+
+**Trained on** (step05v2s): <= 5 inputs, <= 9 devices per side, stack <= 4, **1-2 stages**, 1 output. Same base,
+recipe and seed as step05v2; the corpus is synth5 (31,184 plans) plus `out/synth2s`: 7,975 Euler plans of
+2,413 two-stage cells (`cellgym/llm/stagecorpus.py`: 3-9 per side, each stage <= 5 inputs / stack <= 4 / <= 7
+per side, mean 0.84 breaks; the 17 generated cells whose id is a stage-probe cell were dropped; 87 cells with
+no 3-track routing left out). 663,104 step examples, 1,295 optimizer steps, 91 min on the 3090. Stage nets are
+spelled `x<k>` with k drawn from 1-9 in training.
+**Tested on**: stage3 (2 -> 3 stages, 1-2 outputs, up to 16 per side: still an unseen axis), stage2 (now a
+trained axis; never-seen cells, 3 of 30 above 9 per side), and every single-stage set as before.
+
+Stage probes, area / Euler area as mean, best-of-k (every sample routed; last column fewest-column selection):
+
+| set | model | trained up to -> tested | k = 4 | k = 32 | fewest-column, k = 32 | breaks per placement: mean / fewest of 32 |
+|---|---|---|---|---|---|---|
+| stage2 | step05v2 | 1 -> 2 stages | 1.202, 1.086 | 1.219, 1.026 | 1.026 | 2.82 / 1.00 |
+| | **step05v2s** | 2 stages trained, unseen cells | 1.100, 1.026 | 1.102, 1.002 | 1.005 | 1.66 / 0.83 |
+| stage3 | step05v2 | 1 -> 3 stages | 1.321, 1.161 | 1.321, 1.088 | 1.090 | 5.34 / 2.40 |
+| | **step05v2s** | 2 -> 3 stages | 1.173, 1.081 | 1.183, 1.014 | 1.017 | 3.80 / 1.77 |
+
+Single-stage sets (k = 8, mean, best-of-8), step05v2 -> step05v2s; each is one draw:
+
+| set | trained up to -> tested | step05v2 | step05v2s |
+|---|---|---|---|
+| val / test_id | in distribution | 1.098, 1.002 / 1.079, 0.994 | 1.079, 1.004 / 1.059, 0.992 |
+| ood6 / ood7 / ood8 dev | 5 -> 6 / 7 / 8 inputs | 1.085, 0.999 / 1.077, 1.002 / 1.073, 1.008 | 1.082, 1.000 / 1.069, 0.999 / 1.062, 1.006 |
+| ood9 / ood10 | 5 -> 9 / 10 inputs | 1.078, 1.007 / 1.064, 1.009 | 1.070, 1.005 / 1.056, 1.004 |
+| oodstack5 dev / oodstack6 | stack 4 -> 5 / 6 | 1.128, 1.017 / 1.116, 1.018 | 1.121, 1.020 / 1.107, 1.016 |
+| ooddev10 / 11 / 12 | 9 -> 10 / 11 / 12 per side | 1.163, 1.028 / 1.179, 1.045 / 1.208, 1.063 | 1.139, 1.016 / 1.176, 1.029 / 1.192, 1.032 |
+
+Per-sample pass is 100% on every single-stage set and on stage2; stage3 98.3% (k = 4) and 99.0% (k = 32), all
+`route:no-routing`; i10d16 98.8% (one `cap`). pass@k is 100% everywhere.
+
+- **Training on 2 stages carries to 3 stages.** On the unseen 3-stage probe the mean drops from 32% to 18%
+  above Euler and best-of-32 from 8.8% to 1.4%; best-of-4 is now where best-of-32 was. Breaks per placement
+  fall from 5.3 to 3.8.
+- **2-stage cells are close to solved at k = 32** (1.002), and the mean halves its gap (20% -> 10%).
+- **Nothing is lost on single-stage cells.** Every single-stage set is equal or slightly better in the mean
+  (by 0.00-0.02) and within 0.005 on best-of-8 except 10-12 per side, which improve by 0.012-0.031 (15-87
+  cells; one draw, so only the consistent direction is evidence).
+- This departs from the earlier rule of never training on an axis to fix it: 2 stages is now trained. The
+  rule's point is kept, the top rung (3 stages, 2 outputs) stays unseen, and it is the rung that improved most.
+- The remaining composition gap is the mean (10% / 18%), i.e. breaks at stage boundaries; best-of-32 with
+  fewest-column selection is within 2% of Euler on every set measured except 12 per side.
