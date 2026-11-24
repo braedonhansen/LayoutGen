@@ -19,7 +19,7 @@ from cellgym.synth.train import split_topologies
 
 
 def build(plans: Path, out: Path, rename: float, steps_per_plan: int, seed: int = 0) -> dict:
-    rows = [json.loads(l) for l in plans.read_text().splitlines()]
+    rows = [json.loads(l) for f in ([plans] if isinstance(plans, Path) else plans) for l in f.read_text().splitlines()]
     _, va = split_topologies([r["topology_id"] for r in rows], 0.05)
     va = set(va)
     rng = random.Random(seed)
@@ -41,7 +41,7 @@ def build(plans: Path, out: Path, rename: float, steps_per_plan: int, seed: int 
             n[f"step_{split}"] += 1
     for f in files.values():
         f.close()
-    m = {"plans": str(plans), "rename": rename, "steps_per_plan": steps_per_plan,
+    m = {"plans": str(plans) if isinstance(plans, Path) else [str(p) for p in plans], "rename": rename, "steps_per_plan": steps_per_plan,
          "state": F.STATE_VERSION, "counts": n}
     (out / "manifest.json").write_text(json.dumps(m, indent=1) + "\n")
     return m
@@ -49,7 +49,8 @@ def build(plans: Path, out: Path, rename: float, steps_per_plan: int, seed: int 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--plans", type=Path, default=Path("out/synth5/plans.jsonl"))
+    ap.add_argument("--plans", type=Path, nargs="+", default=[Path("out/synth5/plans.jsonl")],
+                    help="one or more plans.jsonl (e.g. synth5 plus cellgym.llm.stagecorpus output)")
     ap.add_argument("--out", type=Path, default=Path("out/llm/data"))
     ap.add_argument("--rename", type=float, default=0.9)
     ap.add_argument("--steps-per-plan", type=int, default=4)

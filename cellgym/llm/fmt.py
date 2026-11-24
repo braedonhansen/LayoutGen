@@ -26,7 +26,8 @@ Two pipelines, both reading the netlist as text:
            length is the channel density at the frontier, not the cell size.
 
 Augmentation (training only): order-preserving renaming of inputs onto random letters A-Z
-and of internal nets onto random distinct numbers, consistently in prompt and target.
+and of internal nets onto random distinct numbers, consistently in prompt and target. Stage nets
+of multi-stage cells (x1, x2, ..) go onto random increasing numbers x1..x9.
 """
 
 from __future__ import annotations
@@ -47,7 +48,8 @@ if STATE_VERSION not in STATE_VERSIONS:
 LETTERS = [chr(c) for c in range(ord("A"), ord("Z") + 1)]
 NET_MAX = 40
 _INPUT_WORD = re.compile(r"(?<![A-Za-z0-9])([A-Z])(?![A-Za-z0-9])")
-_NET_WORD = re.compile(r"(?<![A-Za-z0-9])([np])(\d+)(?![A-Za-z0-9.])")
+_NET_WORD = re.compile(r"(?<![A-Za-z0-9])([npx])(\d+)(?![A-Za-z0-9.])")   # x<k>: stage nets of multi-stage cells
+STAGE_MAX = 9
 
 
 # -- netlist text ---------------------------------------------------------------------
@@ -82,6 +84,9 @@ def rename_map(nl: dict, rng: random.Random) -> tuple[dict, dict]:
         own = [x for x in nets if x[0] == fam]
         for x, k in zip(own, rng.sample(range(1, NET_MAX + 1), len(own))):
             nm[x] = f"{fam}{k}"
+    own = [x for x in nets if x[0] == "x"]          # stage nets keep their order: x1 x2 -> e.g. x3 x7
+    for x, k in zip(own, sorted(rng.sample(range(1, STAGE_MAX + 1), len(own)))) if own else ():
+        nm[x] = f"x{k}"
     return letters, nm
 
 
@@ -97,7 +102,7 @@ def apply_names(text: str, letters: dict, nets: dict, plan_side: bool = False) -
         if not w:
             continue
         if w[0] == "col":
-            w = [re.sub(r"^([np]=)([np]\d+)", lambda m: m[1] + nets.get(m[2], m[2]), x) for x in w]
+            w = [re.sub(r"^([np]=)([npx]\d+)", lambda m: m[1] + nets.get(m[2], m[2]), x) for x in w]
         elif w[0] in ("route", "pin"):
             w[1] = nets.get(w[1], w[1])
         out.append(" ".join(w))
