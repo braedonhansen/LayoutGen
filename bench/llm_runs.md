@@ -517,3 +517,25 @@ rl9 1.3-2.2 / 1.5-2.7 / 1.8-3.2. Pass is 100% on every set at every k. The stage
   coefficient sweep tests.
 - The first 8 of this draw differ from run11's k = 8 draw by up to 0.02 on the 15-25 cell sets (val SL 1.020
   here against 1.002 there), which is the draw-to-draw noise at that size; the 75+ cell sets agree within 0.005.
+
+## Local run13: fixed entropy coefficient 0.3 and 0.6 (2026-11-24, `run13_2026_11_24.sh`)
+
+Same SL model and RL recipe as rl8, **trained on** the same in-distribution cells; only `--ent-coef` differs.
+Only rl10 was sampled, and its selected checkpoint is step 0, so its **tested-on** scores are a third draw from
+the SL model (e.g. test_id 1.077, 0.994; ood6 1.084, 1.001), not a new model.
+
+| run | fixed coef | training area, steps 0-10 -> last 10 | entropy | KL to SL | eval best-of-8 (96 in-distribution cells) |
+|---|---|---|---|---|---|
+| rl8 | 0.05 | 1.140 -> 1.090 | 0.29 -> 0.13 | 0.17 | 1.047 -> 1.039 |
+| rl10 | 0.3 | 1.152 -> 1.277 | 0.33 -> 0.71 | 0.87 | 1.047 -> 1.070 |
+| rl11 | 0.6 (stopped at step 36) | 1.190 -> 1.572 | 0.39 -> 1.10 | 2.5 | 1.047 -> 1.154 (step 20) |
+
+- **A coefficient of 0.3 or more from step 0 outweighs the area reward**: the policy maximises entropy, every
+  sample becomes distinct (8.0 of 8) and area gets worse from the first steps. rl11 was stopped as soon as this
+  was clear.
+- Together with rl8: 0.05 is too weak to stop the collapse and 0.3 is too strong to learn anything. rl6 worked
+  because its coefficient was near 0.015 while the mean improved (steps 0-40) and large only for the last 20.
+  A constant coefficient has at best a narrow window between 0.05 and 0.3, and the k = 32 result above says the
+  prize is small: RL has to beat "SL, sample more", which is already at or below Euler.
+- Decision: stop tuning the entropy bonus. If RL is revisited, its objective should be the deployed one (best
+  of k after fewest-column selection), not the mean of the samples.
