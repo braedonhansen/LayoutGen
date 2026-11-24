@@ -506,8 +506,8 @@ area. Sampling 32 per cell over all 13 sets took 35-70 min per model on the 3090
 Placements routed per cell at k = 8 / 16 / 32: SL 1.6-2.5 / 2.3-3.3 / 3.0-4.8, rl8 1.5-2.2 / 1.5-2.5 / 1.8-2.9,
 rl9 1.3-2.2 / 1.5-2.7 / 1.8-3.2. Pass is 100% on every set at every k. The stage probes were not sampled at k = 32.
 
-- **Plain SL at k = 32 beats both RL models at k = 32 on every unseen set, and matches or beats Euler on all
-  but 12 per side** (0.987-1.001; 1.018 at 12 per side). SL keeps gaining 0.5-1.5% per doubling of k; the RL
+- **Plain SL at k = 32 beats both RL models at k = 32 on every unseen set except 12 per side (level, 15
+  cells), and matches or beats Euler on all the others** (0.987-1.001; 1.018 at 12 per side). SL keeps gaining 0.5-1.5% per doubling of k; the RL
   models gain about half that, because their extra samples are repeats (routed per cell barely grows).
 - **The cost is small.** 32 samples per cell route only 3-5 placements with fewest-column selection, about what
   routing all of k = 8 costs, and sampling is the cheap side.
