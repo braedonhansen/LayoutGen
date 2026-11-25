@@ -73,4 +73,16 @@ Later the same day: `run12` (k = 32 sampling, fewest-column scoring), `run13` (e
 python -m cellgym.llm.stagecorpus --out out/synth2s --stages 2 --count 2500 --per-side 3:9 --seed 9100   --exclude out/probe/stage2 out/probe/stage3 --jobs 8      # 7,975 plans, 2,413 cells
 ```
 
+2026-11-25: `run16` (second seed, 90 min training + 2 h evaluation), `run17` (temperature sweep, 1.8 h for two
+models), `run18` (self-distillation: 55 min sampling 5,000 training cells at k = 8, 18 min fine-tune, 2.2 h
+evaluation). Greedy label-match on the training cells, 7 min per model:
+
+```bash
+python -m cellgym.llm.distill sample --model out/llm/<model>/model --plans out/synth5/plans.jsonl out/synth2s/plans.jsonl   --cells 5000 --k 1 --temperature 0 --seed 0 --out out/distill1_greedy/<model>
+python -m cellgym.llm.distill select --out out/distill1_greedy/<model> --keep 1     # prints at_label / above_label
+```
+
+WSL exports `NAME` (the PC name) into every shell: never use `$NAME` as a script variable (run18 did, and
+wrote its outputs under the PC name until renamed).
+
 Do not edit a `run*.sh` while it is running: bash reads the file as it goes and the run breaks.
