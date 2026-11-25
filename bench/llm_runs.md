@@ -711,3 +711,46 @@ Per-sample pass and pass@k are 100% on every single-stage set for seed 2.
 - Two step05v2 -> step05v2s differences at fewcol k = 32 repeat in both seeds and exceed the step05v2s seed
   spread: oodstack5 0.008-0.009 worse, val 0.009-0.010 better (ooddev11 0.010 worse, 19 cells). step05v2 has
   one seed, so its own spread is unmeasured and these are not established.
+
+## Sampling temperature and the single-shot mean (run17)
+
+`bash cellgym/llm/run17_2026_11_25.sh` (no training; outputs in `out/llm/temp/<model>/`). Every llm run before
+this sampled at the `infer` default T = 0.7. Both seeds of step05v2s (trained on <= 5 inputs, <= 9 per side,
+stack <= 4, 1-2 stages, 1 output), greedy (T = 0, one placement per cell) and T = 0.3 / 0.5 (k = 8). Area /
+Euler area at the area-optimal track count; cells are seed 1 / seed 2. The T = 0.7 column is from run15 and
+run16 (stage probes: k = 4 mean).
+
+Mean (the expected single-shot result):
+
+| set | trained up to -> tested | T = 0 (greedy) | T = 0.3 | T = 0.5 | T = 0.7 |
+|---|---|---|---|---|---|
+| val (15) | in distribution | 1.055 / 1.075 | 1.062 / 1.077 | 1.072 / 1.081 | 1.079 / 1.082 |
+| test_id (25) | in distribution | 1.039 / 1.049 | 1.046 / 1.056 | 1.060 / 1.056 | 1.059 / 1.066 |
+| ood6 dev (167) | 5 -> 6 inputs | 1.057 / 1.061 | 1.059 / 1.065 | 1.070 / 1.077 | 1.082 / 1.087 |
+| ood7 dev (205) | 5 -> 7 inputs | 1.039 / 1.050 | 1.049 / 1.056 | 1.060 / 1.064 | 1.069 / 1.076 |
+| ood8 dev (120) | 5 -> 8 inputs | 1.045 / 1.051 | 1.053 / 1.053 | 1.055 / 1.059 | 1.062 / 1.068 |
+| ood9 (200) | 5 -> 9 inputs | 1.058 / 1.058 | 1.059 / 1.065 | 1.064 / 1.067 | 1.070 / 1.076 |
+| ood10 (145) | 5 -> 10 inputs | 1.043 / 1.041 | 1.044 / 1.044 | 1.051 / 1.052 | 1.056 / 1.059 |
+| oodstack5 dev (75) | stack 4 -> 5 | 1.105 / 1.126 | 1.100 / 1.109 | 1.111 / 1.125 | 1.121 / 1.122 |
+| oodstack6 (174) | stack 4 -> 6 | 1.078 / 1.087 | 1.085 / 1.091 | 1.097 / 1.102 | 1.107 / 1.117 |
+| ooddev10 dev (87) | 9 -> 10 per side | 1.115 / 1.145 | 1.126 / 1.135 | 1.135 / 1.148 | 1.139 / 1.156 |
+| ooddev11 dev (19) | 9 -> 11 per side | 1.115 / 1.144 | 1.136 / 1.146 | 1.136 / 1.140 | 1.176 / 1.180 |
+| ooddev12 (15) | 9 -> 12 per side | 1.184 / 1.191 | 1.182 / 1.191 | 1.182 / 1.207 | 1.192 / 1.217 |
+| stage2 (30) | 2 stages trained, unseen cells | 1.084 / 1.085 | 1.081 / 1.089 | 1.099 / 1.102 | 1.100 / 1.105 |
+| stage3 (30) | 2 -> 3 stages | 1.134 / 1.190 | 1.141 / 1.179 | 1.176 / 1.181 | 1.173 / 1.194 |
+
+Best-of-8, seed 1 / seed 2, at T = 0.3 | 0.5 | 0.7: ood6 1.009 / 1.012 | 1.001 / 1.005 | 1.000 / 0.999;
+ood9 1.016 / 1.018 | 1.005 / 1.008 | 1.005 / 1.005; oodstack6 1.031 / 1.028 | 1.023 / 1.021 | 1.016 / 1.014;
+ooddev10 1.036 / 1.030 | 1.017 / 1.030 | 1.016 / 1.027; stage3 1.057 / 1.067 | 1.050 / 1.056 | (k = 4 only).
+
+Pass: greedy 100% on every set for both seeds except one `cap` on oodstack5 (seed 1, 98.7%). T = 0.3 and 0.5:
+>= 99.3% per sample on single-stage sets (three `cap`), 98.8-100% on stage3; pass@8 100% everywhere.
+
+- **Greedy removes about a quarter to a third of the mean gap on the input-count sets** (e.g. 6 inputs 8.2-8.7%
+  -> 5.7-6.1%, 10 inputs 5.6-5.9% -> 4.1-4.3%) and less on the device-count and stage sets, where the seeds
+  disagree by more than the effect (10 per side: 1.115 against 1.145).
+- **The gap is mostly not sampling noise.** The policy's single most likely placement is still 4-6% above
+  Euler on 6-10 inputs, 8-13% on stack 5-6, 12-19% on 10-12 per side and 8-19% on the stage probes, and
+  4-7% in distribution. A lower temperature cannot close it.
+- **Lower temperature costs best-of-k**, as expected: best-of-8 at T = 0.3 is 0.01-0.02 worse than at 0.7.
+  T = 0.7 stays the setting for sampling many; greedy is the setting if exactly one placement is wanted.
