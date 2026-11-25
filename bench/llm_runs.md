@@ -618,4 +618,38 @@ Per-sample pass is 100% on every single-stage set and on stage2; stage3 98.3% (k
 - This departs from the earlier rule of never training on an axis to fix it: 2 stages is now trained. The
   rule's point is kept, the top rung (3 stages, 2 outputs) stays unseen, and it is the rung that improved most.
 - The remaining composition gap is the mean (10% / 18%), i.e. breaks at stage boundaries; best-of-32 with
-  fewest-column selection is within 2% of Euler on every set measured except 12 per side.
+  fewest-column selection is within 2% of Euler on every set measured (largest: stage3 at 1.017; single-stage
+  sets at k = 32 are in the next section).
+
+## step05v2s at k = 32 on the single-stage sets (run12 rerun)
+
+`bash cellgym/llm/run12_2026_11_24.sh step05v2s=out/llm/step05v2s/model` (sampling 68 min, scoring 28 min);
+outputs in `out/llm/k32/step05v2s/`. Fewest-column selection, area / Euler area at the area-optimal track
+count, best over the routed placements among the first k samples. step05v2 is trained on single-stage cells
+up to 5 inputs, stack 4, 9 devices per side; step05v2s adds 2-stage cells of 3-9 devices per side. Neither
+axis below was widened for step05v2s. One draw per model.
+
+| set | trained up to -> tested | step05v2 k=32 | step05v2s k=8 | k=16 | k=32 |
+|---|---|---|---|---|---|
+| val (15) | in distribution | 0.997 | 0.993 | 0.992 | 0.987 |
+| test_id (25) | in distribution | 0.988 | 0.997 | 0.990 | 0.987 |
+| ood6 dev (167) | 5 -> 6 inputs | 0.987 | 0.998 | 0.988 | 0.985 |
+| ood7 dev (205) | 5 -> 7 inputs | 0.987 | 0.997 | 0.990 | 0.984 |
+| ood8 dev (120) | 5 -> 8 inputs | 0.992 | 1.007 | 0.998 | 0.994 |
+| ood9 (200) | 5 -> 9 inputs | 0.991 | 1.003 | 0.997 | 0.992 |
+| ood10 (145) | 5 -> 10 inputs | 0.998 | 1.005 | 1.000 | 0.995 |
+| oodstack5 dev (75) | stack 4 -> 5 | 0.987 | 1.021 | 1.003 | 0.995 |
+| oodstack6 (174) | stack 4 -> 6 | 0.996 | 1.016 | 0.999 | 0.993 |
+| ooddev10 dev (87) | 9 -> 10 per side | 0.998 | 1.035 | 1.008 | 0.996 |
+| ooddev11 dev (19) | 9 -> 11 per side | 1.001 | 1.041 | 1.019 | 1.011 |
+| ooddev12 (15) | 9 -> 12 per side | 1.018 | 1.051 | 1.028 | 1.003 |
+
+Per-sample pass and pass@k are 100% on every set at every k.
+
+- **step05v2s is level with step05v2 at k = 32 on single-stage cells.** Eight of twelve sets are within 0.003
+  of each other. The exceptions go both ways: oodstack5 is 0.008 worse (75 cells),
+  ooddev11 0.010 worse (19 cells), ooddev12 0.015 better (15 cells), val 0.010 better (15 cells). With one
+  draw per model these differences are not resolved.
+- **Best-of-32 with fewest-column selection is at or below Euler area on every single-stage set except 11 and
+  12 per side** (1.011 and 1.003), and within 2% on every set measured including the stage probes.
+- The mean over the routed fewest-column placements is 1.002-1.025 at k = 32 (step05v2: 1.006-1.035).

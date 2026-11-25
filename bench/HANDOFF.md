@@ -12,10 +12,11 @@ not in this repo.
   1 output. **Tested on:** 6-10 inputs, stack 5-6, 10-12 per side, probes up to 16 inputs / 24 per side,
   3 stages with 1-2 outputs. The top rung of every axis stays unseen.
 - **Deployment recipe: sample k = 32, route only the fewest-column placements** (`score --select fewcol --k 32`;
-  3-5 routed per cell). With it plain SL is at or below Euler area on 6-10 inputs, stack 5-6 and 10-11 per
-  side, 1.018 at 12 per side, and step05v2s is 1.005 on 2-stage and 1.017 on unseen 3-stage cells.
+  3-5 routed per cell). With it step05v2s is at or below Euler area on 6-10 inputs, stack 5-6 and 10 per
+  side, 1.011 at 11 and 1.003 at 12 per side, 1.005 on 2-stage and 1.017 on unseen 3-stage cells (one draw;
+  level with step05v2 on the single-stage sets).
 - Everything runs locally now (`env/LOCAL.md`); no pod is needed. Scripts `cellgym/llm/run11..run15_2026_11_24.sh`.
-- Findings of this session (details in `llm_runs.md`, last six sections):
+- Findings of this session (details in `llm_runs.md`, last seven sections):
   - RL with an entropy bonus is not worth it at k > 8: fixed coefficient 0.05 collapses diversity (rl8), 0.3 and
     0.6 diverge (rl10, rl11), per-step break shaping is neutral (rl9), and "SL, sample more" beats every RL
     model at k = 32. rl6's good result came from its controller's late push, not from a small bonus.
