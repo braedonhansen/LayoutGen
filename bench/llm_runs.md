@@ -830,3 +830,33 @@ pass@8 100%. One seed, one distillation draw.
   neither gains nor loses much.
 - Distillation is a modest lever for the single-shot case, not a fix: after it greedy is still 3-5% above
   Euler on 6-10 inputs, 7-8% on stack 5-6 and 11-16% on 10-12 per side.
+
+### A reduced second round (step05v2s_d2)
+
+`BASE=step05v2s_d1 TAG=step05v2s_d2 CORPUS=out/distill2 CELLS=2500 SEED=1 EVAL_TEMPS=0 SKIP_K32=1 bash
+cellgym/llm/run18_2026_11_25.sh` (38 min): step05v2s_d1 sampled k = 8 on 2,500 freshly drawn training cells,
+4,186 plans kept on 2,114 cells, 70,995 step examples, 138 steps at lr 2e-5 -> `out/llm/step05v2s_d2`. Only
+greedy was evaluated; best-of-k for d2 is **not measured**.
+
+Label-match on training-distribution cells (share of placements at the label's column count):
+
+| model | T = 0.7 samples | greedy, the 5,000 cells of `out/distill1` |
+|---|---|---|
+| step05v2s | 32.3% (40,000 samples, those 5,000 cells) | 42.0% |
+| step05v2s_d1 | 44.2% (20,000 samples, the 2,500 round-2 cells, mostly not its distillation cells) | 54.0% (largely in-sample) |
+| step05v2s_d2 | not run | 58.9% (partly in-sample; 4 `cap`) |
+
+Greedy area / Euler area, base -> d1 -> d2: val 1.055 -> 1.026 -> 1.017; test_id 1.039 -> 1.029 -> 1.011;
+ood6 1.057 -> 1.040 -> 1.034; ood7 1.039 -> 1.040 -> 1.041; ood8 1.045 -> 1.044 -> 1.048; ood9 1.058 ->
+1.049 -> 1.041; ood10 1.043 -> 1.032 -> 1.031; oodstack5 1.105 -> 1.079 -> 1.072; oodstack6 1.078 -> 1.071 ->
+1.077; ooddev10 1.115 -> 1.107 -> 1.096; ooddev11 1.115 -> 1.136 -> 1.106; ooddev12 1.184 -> 1.156 -> 1.123;
+stage2 1.084 -> 1.060 -> 1.056; stage3 1.134 -> 1.120 -> 1.150. Greedy pass 100% everywhere except stage3
+(96.7%, 1 of 30).
+
+- **Rounds compound, slowly.** The second (half-size) round improves greedy on nine of twelve single-stage
+  sets, by up to 0.033 at 11-12 per side (15-19 cells) and 0.001-0.018 on the larger sets; ood7, ood8 and
+  oodstack6 are flat or 0.004-0.006 worse; stage3 is worse (30 cells, one draw).
+- d1 sampling on fresh training cells matches the label on 44% of samples against the base's 32%: the gain of
+  round 1 is not confined to the cells it was distilled on.
+- Open: whether best-of-32 survives a second round (run `run12` on `step05v2s_d2`), and where the rounds
+  saturate.

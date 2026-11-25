@@ -40,7 +40,9 @@ not in this repo.
    lookahead problem of the step policy, not a generalisation problem. Untested levers, in the order I would
    try them: (a) SL for 2-3 epochs instead of 1 (does in-distribution label-match rise?), measured with
    `distill sample --k 1 --temperature 0` + `select` on the 5,000 cells of `out/distill1/cells.json`;
-   (b) a second and third distillation round from fresh cells (`--seed 1`); (c) a larger base (Qwen2.5-1.5B);
+   (b) further distillation rounds: a half-size second round (`step05v2s_d2`) raised greedy label-match
+   42% -> 54% -> 59% and improved greedy area on nine of twelve sets, but its best-of-32 is unmeasured
+   (run `run12` on it first); (c) a larger base (Qwen2.5-1.5B);
    (d) a state feature that exposes what an Euler path needs (odd-degree diffusion nets remaining per row).
    The label-match rate on training cells takes 7 min per model and is the metric to move first.
 2. Euler area references for the 14-24-per-side probes (needs a compact search); without them those probes
