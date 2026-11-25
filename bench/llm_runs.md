@@ -653,3 +653,61 @@ Per-sample pass and pass@k are 100% on every set at every k.
 - **Best-of-32 with fewest-column selection is at or below Euler area on every single-stage set except 11 and
   12 per side** (1.011 and 1.003), and within 2% on every set measured including the stage probes.
 - The mean over the routed fewest-column placements is 1.002-1.025 at k = 32 (step05v2: 1.006-1.035).
+
+## Second training seed for step05v2s (run16)
+
+`bash cellgym/llm/run16_2026_11_24.sh 2` -> `out/llm/step05v2s_s2` (same base, data `out/llm/data_v2s` and
+recipe as run15, `--seed 2`; 1,295 steps, 90 min, val loss 0.0415). Trained on <= 5 inputs, <= 9 per side,
+stack <= 4, 1-2 stages, 1 output, as seed 1. Outputs in `out/llm/stage/step05v2s_s2/` and
+`out/llm/k32/step05v2s_s2/`. Seed 2's k = 8 figures are the first 8 of its k = 32 samples; seed 1's k = 8
+figures are a separate k = 8 draw. step05v2 (single-stage training only) still has one seed.
+
+Stage probes, area / Euler area (mean, best-of-k):
+
+| tested on | trained -> tested | k | seed 1 | seed 2 |
+|---|---|---|---|---|
+| stage2 (30) | 2 stages trained, unseen cells | 4 | 1.100, 1.026 | 1.105, 1.045 |
+| | | 32 | 1.102, 1.002 | 1.112, 1.000 |
+| | | 32 fewcol, best | 1.005 | 1.000 |
+| stage3 (30) | 2 -> 3 stages, 1-2 outputs | 4 | 1.173, 1.081 | 1.194, 1.096 |
+| | | 32 | 1.183, 1.014 | 1.198, 1.007 |
+| | | 32 fewcol, best | 1.017 | 1.013 |
+
+Per-sample pass, seed 2: stage2 100% (k = 4), 99.7% (k = 32); stage3 99.2% (k = 4), 98.6% (k = 32); all
+failures `route:no-routing`. pass@k 100%, and 100% per sample under fewest-column selection.
+
+Single-stage sets. Left: best-of-32 with fewest-column selection. Right: plain mean, best-of-8.
+
+| set | trained up to -> tested | fewcol k=32: v2 / s1 / s2 | k=8 mean, best: v2 | s1 | s2 |
+|---|---|---|---|---|---|
+| val (15) | in distribution | 0.997 / 0.987 / 0.988 | 1.098, 1.002 | 1.079, 1.004 | 1.082, 0.999 |
+| test_id (25) | in distribution | 0.988 / 0.987 / 0.986 | 1.079, 0.994 | 1.059, 0.992 | 1.066, 0.996 |
+| ood6 dev (167) | 5 -> 6 inputs | 0.987 / 0.985 / 0.986 | 1.085, 0.999 | 1.082, 1.000 | 1.087, 0.999 |
+| ood7 dev (205) | 5 -> 7 inputs | 0.987 / 0.984 / 0.986 | 1.077, 1.002 | 1.069, 0.999 | 1.076, 0.998 |
+| ood8 dev (120) | 5 -> 8 inputs | 0.992 / 0.994 / 0.993 | 1.073, 1.008 | 1.062, 1.006 | 1.068, 1.006 |
+| ood9 (200) | 5 -> 9 inputs | 0.991 / 0.992 / 0.991 | 1.078, 1.007 | 1.070, 1.005 | 1.076, 1.005 |
+| ood10 (145) | 5 -> 10 inputs | 0.998 / 0.995 / 0.994 | 1.064, 1.009 | 1.056, 1.004 | 1.059, 1.005 |
+| oodstack5 dev (75) | stack 4 -> 5 | 0.987 / 0.995 / 0.996 | 1.128, 1.017 | 1.121, 1.020 | 1.122, 1.013 |
+| oodstack6 (174) | stack 4 -> 6 | 0.996 / 0.993 / 0.994 | 1.116, 1.018 | 1.107, 1.016 | 1.117, 1.014 |
+| ooddev10 dev (87) | 9 -> 10 per side | 0.998 / 0.996 / 0.997 | 1.163, 1.028 | 1.139, 1.016 | 1.156, 1.027 |
+| ooddev11 dev (19) | 9 -> 11 per side | 1.001 / 1.011 / 1.011 | 1.179, 1.045 | 1.176, 1.029 | 1.180, 1.030 |
+| ooddev12 (15) | 9 -> 12 per side | 1.018 / 1.003 / 1.014 | 1.208, 1.063 | 1.192, 1.032 | 1.217, 1.058 |
+
+Per-sample pass and pass@k are 100% on every single-stage set for seed 2.
+
+- **The composition result holds across seeds.** On the unseen 3-stage probe both seeds are within 1.5% of
+  Euler at best-of-32 (1.014, 1.007; step05v2 1.088) and the mean is 1.18-1.20 (step05v2 1.32). 2-stage
+  best-of-32 is 1.002 and 1.000.
+- **Seed spread at best-of-32 with fewest-column selection is at most 0.002 on eleven of twelve single-stage
+  sets**; the exception is 12 per side (0.011, 15 cells). On the stage probes it is 0.004-0.007 at k = 32 and
+  0.015-0.019 at best-of-4.
+- **Seed spread of the plain k = 8 mean is up to 0.010 on most sets, 0.017 at 10 per side and 0.025 at 12 per
+  side.** That is as large as most of the step05v2 -> step05v2s mean differences reported in the run15
+  section: seed 2 is below step05v2 on eight sets and above on four (by 0.001-0.009).
+- **Corrections to the run15 reading.** "Every single-stage set is equal or slightly better in the mean" held
+  for seed 1 only. The best-of-8 gain at 10 and 12 per side (0.012, 0.031) is not reproduced by seed 2
+  (0.001, 0.005); at 11 per side it is (0.016, 0.015). What stands: adding 2-stage cells costs nothing
+  resolvable on single-stage cells.
+- Two step05v2 -> step05v2s differences at fewcol k = 32 repeat in both seeds and exceed the step05v2s seed
+  spread: oodstack5 0.008-0.009 worse, val 0.009-0.010 better (ooddev11 0.010 worse, 19 cells). step05v2 has
+  one seed, so its own spread is unmeasured and these are not established.
