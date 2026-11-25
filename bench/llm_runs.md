@@ -754,3 +754,79 @@ Pass: greedy 100% on every set for both seeds except one `cap` on oodstack5 (see
   4-7% in distribution. A lower temperature cannot close it.
 - **Lower temperature costs best-of-k**, as expected: best-of-8 at T = 0.3 is 0.01-0.02 worse than at 0.7.
   T = 0.7 stays the setting for sampling many; greedy is the setting if exactly one placement is wanted.
+
+## Self-distillation, one round, and where the mean gap comes from (run18)
+
+`bash cellgym/llm/run18_2026_11_25.sh` (3 h 28 min in all: sampling 55 min, fine-tune 18 min, the rest
+evaluation). Tool: `cellgym/llm/distill.py`.
+
+1. step05v2s (seed 1) sampled k = 8 at T = 0.7 on 5,000 cells drawn from its own training corpora (synth5 +
+   synth2s, seed 0) -> `out/distill1/samples.jsonl` (40,000 placements, all complete).
+2. Per cell, up to 3 distinct fewest-column placements were kept when no wider than the cell's Euler label
+   (no router) -> 7,760 plans on 4,034 cells (5,440 synthetic, 431 core_train, 1,889 2-stage).
+3. step05v2s was fine-tuned on those only: 129,927 step examples, 1 epoch, 253 steps, lr 2e-5, seed 1 ->
+   `out/llm/step05v2s_d1`. Val loss on the original labels rose 0.0415 -> 0.0517 (expected: fewer modes).
+
+The trained axes are unchanged (<= 5 inputs, <= 9 per side, stack <= 4, 1-2 stages, 1 output). The run wrote
+its outputs under the name `Fractal` (the script read `$NAME`, which WSL sets to the PC name); the directories
+were renamed to `step05v2s_d1` afterwards, the script now reads `$TAG`, and `out/llm/progress` still says
+`Fractal` for this run.
+
+### The diagnostic: the gap is already there on the training cells
+
+Column count of the 40,000 samples against the label's (labels are column-minimal: no sample of any model
+was ever below its label):
+
+| cells (training corpora) | samples | at label count | mean extra columns |
+|---|---|---|---|
+| all 5,000 | 40,000 | 32.3% | 1.32 |
+| 1 stage, 4-5 per side | 608 | 63-75% | 0.3-0.4 |
+| 1 stage, 6 / 7 / 8 / 9 per side | 968 / 2,920 / 8,256 / 19,704 | 48% / 38% / 29% / 25% | 0.69 / 1.01 / 1.31 / 1.60 |
+| 2 stages, 5 / 6 / 7 / 8 / 9 per side | 440 / 1,384 / 2,344 / 2,144 / 1,136 | 75% / 63% / 49% / 41% / 32% | 0.30 / 0.50 / 0.82 / 1.04 / 1.35 |
+
+For 19% of the cells (966) none of the 8 samples reached the label's count. The first diffusion break falls
+on average 33-47% of the way through the placement. Greedy on the same 5,000 cells
+(`out/distill1_greedy/<model>`): step05v2s reaches the label count on 42.0% (mean 1.02 extra columns), seed 2
+on 39.8% (1.13), step05v2s_d1 on 54.0% (0.77; 4,034 of these cells are its distillation cells, so that figure
+is in-sample).
+
+- **The mean gap is not a generalisation gap.** On cells of the training distribution the policy places an
+  Euler-minimal row a third of the time when sampling and 40-42% of the time greedily, falling to a quarter
+  at 9 per side. The unseen sets continue that size trend; they do not start it.
+- So the single-shot problem is that the step policy does not fit (or cannot look far enough ahead to
+  reproduce) its own column-minimal labels. More samples hide it; neither temperature nor more unseen-axis
+  data addresses it.
+
+### step05v2s_d1 against step05v2s (seed 1), trained up to -> tested, area / Euler area
+
+| set | trained -> tested | greedy: base -> d1 | T=0.7 mean (k=8): base -> d1 | fewcol best-of-32: base -> d1 |
+|---|---|---|---|---|
+| val (15) | in distribution | 1.055 -> 1.026 | 1.079 -> 1.057 | 0.987 -> 0.986 |
+| test_id (25) | in distribution | 1.039 -> 1.029 | 1.059 -> 1.041 | 0.987 -> 0.989 |
+| ood6 dev (167) | 5 -> 6 inputs | 1.057 -> 1.040 | 1.082 -> 1.060 | 0.985 -> 0.991 |
+| ood7 dev (205) | 5 -> 7 inputs | 1.039 -> 1.040 | 1.069 -> 1.055 | 0.984 -> 0.987 |
+| ood8 dev (120) | 5 -> 8 inputs | 1.045 -> 1.044 | 1.062 -> 1.051 | 0.994 -> 0.994 |
+| ood9 (200) | 5 -> 9 inputs | 1.058 -> 1.049 | 1.070 -> 1.056 | 0.992 -> 0.994 |
+| ood10 (145) | 5 -> 10 inputs | 1.043 -> 1.032 | 1.056 -> 1.041 | 0.995 -> 0.995 |
+| oodstack5 dev (75) | stack 4 -> 5 | 1.105 -> 1.079 | 1.121 -> 1.100 | 0.995 -> 0.991 |
+| oodstack6 (174) | stack 4 -> 6 | 1.078 -> 1.071 | 1.107 -> 1.086 | 0.993 -> 0.994 |
+| ooddev10 dev (87) | 9 -> 10 per side | 1.115 -> 1.107 | 1.139 -> 1.124 | 0.996 -> 0.995 |
+| ooddev11 dev (19) | 9 -> 11 per side | 1.115 -> 1.136 | 1.176 -> 1.180 | 1.011 -> 1.018 |
+| ooddev12 (15) | 9 -> 12 per side | 1.184 -> 1.156 | 1.192 -> 1.168 | 1.003 -> 1.004 |
+| stage2 (30) | 2 stages trained, unseen cells | 1.084 -> 1.060 | 1.100 (k=4) -> 1.080 | not run |
+| stage3 (30) | 2 -> 3 stages | 1.134 -> 1.120 | 1.173 (k=4) -> 1.169 | not run |
+
+Best-of-8 at T = 0.7 for d1: within 0.006 of the base on every single-stage set except ooddev11 (+0.010);
+stage2 1.011, stage3 1.043 (k = 8; the base has k = 4 and k = 32 only). Pass, d1: 100% per sample on every
+single-stage set at every setting; stage3 greedy 96.7% (1 of 30, `route:no-routing`), 99.2% at T = 0.7;
+pass@8 100%. One seed, one distillation draw.
+
+- **One round moves the mean down by 0.011-0.024 on eleven of twelve single-stage sets at T = 0.7** (seed
+  spread of that figure: up to 0.010 on most sets, see run16), i.e. it removes roughly a fifth to a quarter
+  of the gap. Greedy improves on ten of twelve sets (0.001-0.029), is level on ood7 and worse at 11 per
+  side (19 cells).
+- **Best-of-32 with fewest-column selection is nearly unchanged**: worse by 0.006 on 6 inputs and 0.007 at
+  11 per side, better by 0.004 on stack 5, within 0.003 elsewhere (seed spread 0.002). The deployment recipe
+  neither gains nor loses much.
+- Distillation is a modest lever for the single-shot case, not a fix: after it greedy is still 3-5% above
+  Euler on 6-10 inputs, 7-8% on stack 5-6 and 11-16% on 10-12 per side.

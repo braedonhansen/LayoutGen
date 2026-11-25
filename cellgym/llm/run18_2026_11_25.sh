@@ -6,11 +6,11 @@
 #   3. fine-tune step05v2s on those placements only (1 epoch, lr 2e-5) -> step05v2s_d1
 # Trained axes do not widen: <= 5 inputs, <= 9 per side, stack <= 4, 1-2 stages, 1 output.
 # Tested: greedy and T=0.7 k=8 on all single-stage sets and the stage probes (run17), then k=32 (run12).
-#   bash cellgym/llm/run18_2026_11_25.sh        last progress line RUN18_DONE
+#   [BASE=.. TAG=.. CORPUS=.. LR=..] bash cellgym/llm/run18_2026_11_25.sh        last progress line RUN18_DONE
 cd "$(dirname "$0")/../.." || exit 1
 source "${LG_ENV:-$HOME/lg-env}/bin/activate"
 export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CELLGYM_STATE=v2
-D=out/llm; P=$D/progress; B=${BASE:-step05v2s}; N=${NAME:-${B}_d1}; O=$D/$N; C=${CORPUS:-out/distill1}
+D=out/llm; P=$D/progress; B=${BASE:-step05v2s}; N=${TAG:-${B}_d1}; O=$D/$N; C=${CORPUS:-out/distill1}
 say() { echo "$* $(date)" >> $P; }
 run() { local name=$1 log=$2; shift 2; "$@" > $log 2>&1; local rc=$?
         if [ $rc -eq 0 ]; then say "$name ok"; else say "$name FAILED rc=$rc"; fi; return $rc; }
