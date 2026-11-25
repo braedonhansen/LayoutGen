@@ -15,8 +15,8 @@ not in this repo.
   3-5 routed per cell). With it step05v2s is at or below Euler area on 6-10 inputs, stack 5-6 and 10 per
   side, 1.011 at 11 and 1.003 at 12 per side, 1.005 on 2-stage and 1.017 on unseen 3-stage cells (one draw;
   level with step05v2 on the single-stage sets).
-- Everything runs locally now (`env/LOCAL.md`); no pod is needed. Scripts `cellgym/llm/run11..run15_2026_11_24.sh`.
-- Findings of this session (details in `llm_runs.md`, last seven sections):
+- Everything runs locally now (`env/LOCAL.md`); no pod is needed. Scripts `cellgym/llm/run11..run16_2026_11_24.sh`.
+- Findings of this session (details in `llm_runs.md`, last eight sections):
   - RL with an entropy bonus is not worth it at k > 8: fixed coefficient 0.05 collapses diversity (rl8), 0.3 and
     0.6 diverge (rl10, rl11), per-step break shaping is neutral (rl9), and "SL, sample more" beats every RL
     model at k = 32. rl6's good result came from its controller's late push, not from a small bonus.
@@ -32,8 +32,10 @@ not in this repo.
    selection) or the SL labels should be filtered to minimal-area placements; the entropy bonus is a dead end.
 2. Euler area references for the 14-24-per-side probes (needs a compact search); without them those probes
    only report pass rates.
-3. Second seed for step05v2 / step05v2s: every comparison here is one seed, and 15-30 cell sets move by 0.02
-   between draws.
+3. Second seed for step05v2 (single-stage training only; still one seed). step05v2s has two
+   (`out/llm/step05v2s_s2`, run16): the 3-stage result reproduces (best-of-32 1.014 / 1.007), seed spread is
+   <= 0.002 at fewest-column best-of-32 on all single-stage sets but 12 per side (0.011), and up to 0.025 on
+   the plain k = 8 mean.
 4. Multi-output training cells (the 3-stage probe's `OUT1 OUT2` are still unseen tokens), then a 4-stage probe
    as the new top rung.
 5. Ground truth (KLayout + Magic + Netgen) is not installed on the 3090 PC: audits of the fast checker still
