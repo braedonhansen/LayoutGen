@@ -1047,3 +1047,28 @@ Model step05v2s (trained on <= 5 inputs, stack <= 4, <= 9 per side, 1-2 stages),
   checker in 1,309 layouts. 11 minutes for 1,249 layouts at 12 jobs.
 - Not covered: layouts the fast checker rejects (false fails would only cost area, not correctness), the
   14-24-per-side probes, and the other models. Summaries: `bench/results/gt_audit_2026_11_26/`.
+
+## step05v3s_e2: stage probes with selection and the T = 0.7 mean (2026-11-26, run14 base + run17 at T = 0.7, `CELLGYM_STATE=v3`)
+
+Closes the two gaps left in the step05v3s_e2 section. Trained up to 2 stages -> tested, area / Euler area,
+step05v2s -> step05v3s_e2 (30 cells per probe, pass@k 100% everywhere):
+
+| tested on | mean, k = 4 | best-of-8 fewcol | best-of-32 fewcol |
+|---|---|---|---|
+| 2 stages (trained) | 1.100 -> 1.083 | 1.014 -> 1.015 | 1.005 -> 0.995 |
+| 3 stages (unseen) | 1.173 -> 1.172 | 1.062 -> 1.038 | 1.017 -> 1.014 |
+
+T = 0.7 single-shot mean on the single-stage sets (k = 8 samples), step05v2s -> step05v3s_e2: val 1.079 ->
+1.072; test_id 1.059 -> 1.031; 6 inputs 1.082 -> 1.054; 7 inputs 1.069 -> 1.065; 8 inputs 1.062 -> 1.050;
+9 inputs 1.070 -> 1.066; 10 inputs 1.056 -> 1.043; stack 5 1.121 -> 1.130; stack 6 1.107 -> 1.107; 10 per
+side 1.139 -> 1.127; 11 per side 1.176 -> 1.156; 12 per side 1.192 -> 1.237 (15 cells). Per-sample pass
+99.8-100% (three `cap` samples in 8,000); on 3 stages 1-3 samples per 240-960 fail in routing, pass@k 100%.
+
+- **The greedy 3-stage regression does not show up in sampling**: with selection step05v3s_e2 is level with
+  or better than step05v2s on both stage probes at every k measured.
+- The sampled mean improves by 0.004-0.028 on nine of twelve single-stage sets, is level at stack depth 6 and
+  worse at stack depth 5 (+0.009) and 12 per side (+0.045, 15 cells).
+- **Summary of step05v3s_e2 against step05v2s (one seed against one seed): level at best-of-32 everywhere,
+  better at best-of-8 on the far sets and on 3 stages, slightly better single-shot mean inside and near the
+  trained range.** It is the candidate for the release model; a second seed and the ground-truth audit of its
+  layouts are still needed.
