@@ -1072,3 +1072,38 @@ side 1.139 -> 1.127; 11 per side 1.176 -> 1.156; 12 per side 1.192 -> 1.237 (15 
   better at best-of-8 on the far sets and on 3 stages, slightly better single-shot mean inside and near the
   trained range.** It is the candidate for the release model; a second seed and the ground-truth audit of its
   layouts are still needed.
+
+## Large probes at k = 32 against a lower bound on columns (run21, 2026-11-26, `run21_2026_11_26.sh`)
+
+The 14-24-per-side probes have no Euler reference: the Euler search does not finish on any of them (20 s
+limit, run10), and the exact break search of `regret.Solver` does not finish on the 14-per-side cells in 60 s
+either. They had only been sampled at k = 4 and reported as pass rates. Two additions:
+
+- `regret.break_lower_bound`: a search-free floor on diffusion breaks (each row's diffusion graph needs at
+  least max(1, odd nets / 2) trails per connected component; a placement with b breaks gives b + 1). It
+  ignores that both rows share one gate order, so it is loose; on 300 training cells it never exceeds the
+  exact minimum and equals it on more than half.
+- `python -m cellgym.llm.bound SAMPLES --k K`: columns of the fewest-column sample (2 x devices per side + 1 +
+  breaks) over the bound's columns.
+
+Trained on <= 5 inputs, <= 9 devices per side, stack <= 4 -> tested on the probes; T = 0.7; fewest-column
+selection routed at the area-optimal track count. Pass@k (fast checker) is 100% on all four probes for both
+models at k = 8 and k = 32, and every routed fewest-column placement passes.
+
+Mean columns / bound columns (cells provably column-minimal), step05v2s | step05v3s_e2:
+
+| tested on | cells | k = 4 | k = 8 | k = 32 |
+|---|---|---|---|---|
+| 8 inputs, 14 per side | 20 | 1.084 (1) \| 1.065 (2) | 1.074 (1) \| 1.059 (2) | 1.045 (3) \| 1.041 (3) |
+| 10 inputs, 16 per side | 20 | 1.039 (4) \| 1.061 (3) | 1.030 (5) \| 1.048 (4) | 1.024 (5) \| 1.024 (6) |
+| 12 inputs, 20 per side (stack 5) | 20 | 1.084 (2) \| 1.071 (4) | 1.061 (2) \| 1.044 (7) | 1.032 (3) \| 1.024 (10) |
+| 16 inputs, 24 per side (stack 5) | 10 | 1.075 (1) \| 1.069 (1) | 1.049 (1) \| 1.069 (1) | 1.030 (2) \| 1.028 (2) |
+
+- **At up to 16 inputs and 24 devices per side (trained on 5 and 9), 32 samples give a placement within
+  2.4-4.5% of a floor on the column count, with every cell routed and passing.** Since the floor is loose, the
+  distance to the true minimum is smaller; on 13-21 of 70 cells the placement is provably column-minimal.
+- More samples keep paying here: k = 4 -> 32 halves the gap (step05v2s 1.04-1.08 -> 1.02-1.05).
+- Sampling cost: 681 s for 70 cells x 32 placements on the 3090 (about 0.3 s per placement, 10 s per cell).
+- The two models are level at k = 32; one seed each, 10-20 cells per probe.
+- Not measured: area against any reference (columns only; area followed columns with r = 0.93 on the
+  referenced sets), and ground truth on these layouts (audit below, when run).
