@@ -96,6 +96,30 @@ class Solver:
         return out
 
 
+def break_lower_bound(nl: dict) -> int:
+    """A lower bound on diffusion breaks without search: a placement with b breaks covers each row's diffusion
+    graph (nets as nodes, devices as edges) with b + 1 trails, and a connected component with k odd-degree
+    nets needs at least max(1, k / 2) trails. Not tight: it ignores that both rows must share the gate order."""
+    need = 0
+    for kind in ("nmos", "pmos"):
+        deg, par = Counter(), {}
+
+        def find(x):
+            while par.setdefault(x, x) != x:
+                par[x] = par[par[x]]
+                x = par[x]
+            return x
+        for d in nl["devices"]:
+            if d["type"] == kind:
+                a, b = d["drain"], d["source"]
+                deg[a] += 1
+                deg[b] += 1
+                par[find(a)] = find(b)
+        odd = Counter(find(x) for x, k in deg.items() if k % 2)
+        need = max(need, sum(max(1, odd[r] // 2) for r in {find(x) for x in deg}))
+    return max(0, need - 1)
+
+
 def work(job):
     nl, placements = job
     s = Solver(nl)

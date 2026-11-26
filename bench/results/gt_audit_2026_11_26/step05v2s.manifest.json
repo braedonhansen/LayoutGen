@@ -1,0 +1,59 @@
+{
+ "samples": "out/llm/k32/step05v2s/samples.jsonl",
+ "k": 32,
+ "all_routed": false,
+ "sets": {
+  "val": {
+   "cells": 15,
+   "written": 15
+  },
+  "test_id": {
+   "cells": 25,
+   "written": 25
+  },
+  "ood6_dev": {
+   "cells": 167,
+   "written": 167
+  },
+  "ood7_dev": {
+   "cells": 205,
+   "written": 205
+  },
+  "ood8_dev": {
+   "cells": 120,
+   "written": 120
+  },
+  "ood9_all": {
+   "cells": 200,
+   "written": 200
+  },
+  "ood10_all": {
+   "cells": 145,
+   "written": 145
+  },
+  "oodstack5_dev": {
+   "cells": 75,
+   "written": 75
+  },
+  "oodstack6_all": {
+   "cells": 174,
+   "written": 174
+  },
+  "ooddev10_dev": {
+   "cells": 87,
+   "written": 87
+  },
+  "ooddev11_dev": {
+   "cells": 19,
+   "written": 19
+  },
+  "ooddev12_all": {
+   "cells": 15,
+   "written": 15
+  },
+  "adder": {
+   "cells": 2,
+   "written": 2
+  }
+ }
+}

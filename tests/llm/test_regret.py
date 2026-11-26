@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from cellgym.llm import fmt as F
-from cellgym.llm.regret import Solver
+from cellgym.llm.regret import Solver, break_lower_bound
 
 PLANS = Path("out/synth5/plans.jsonl")
 
@@ -43,3 +43,13 @@ def test_inverter_has_no_break():
     s = Solver(nl)
     assert s.restart(0, 0) == 0
     assert s.replay([("sd", "OUT", "OUT"), ("g", "A"), ("sd", "VSS", "VDD")]) == [("start", 0), ("gate", 0), ("sd", 0)]
+
+
+def test_lower_bound_never_exceeds_exact_minimum():
+    tight = 0
+    rows = _rows()
+    for r in rows:
+        lb, opt = break_lower_bound(r["netlist"]), Solver(r["netlist"]).restart(0, 0)
+        assert 0 <= lb <= opt
+        tight += lb == opt
+    assert tight > len(rows) // 2

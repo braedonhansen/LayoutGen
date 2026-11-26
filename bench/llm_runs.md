@@ -1019,3 +1019,31 @@ step05v3s_e2:
 - **Not measured for step05v3s_e2**: the T = 0.7 single-shot mean, and the stage probes with selection (run14).
   Greedy on 3 stages was worse (1.178 against 1.134), so run14 has to be run before this model replaces
   step05v2s. One seed.
+
+## Ground-truth audit of the deployed layouts (2026-11-26, KLayout + Magic + Netgen)
+
+Every pass rate above comes from the fast checker. This is the first audit of **model** layouts against full
+ground truth (the M3 audit covered Euler plans and mutants). Toolchain per `env/SETUP.md` in a second WSL
+distro (Ubuntu 22.04; see `env/LOCAL.md`): KLayout 0.30.12 with the `sky130A_mr.drc` deck, Magic 8.3.465 full
+DRC (excluding only the tapless-cell rules nwell.4, LU.2, LU.3), Netgen 1.5.272 LVS, PDK open_pdks `792ef67`.
+
+`python -m cellgym.llm.gtexport SAMPLES --out DIR --k 32` writes, per cell, the layout the recipe deploys
+(fewest-column placements among 32 samples, routed at the area-optimal track count, smallest area that the
+fast checker passes); `python -m cellgym.check.audit DIR --cells DIR` runs ground truth on each.
+
+Model step05v2s (trained on <= 5 inputs, stack <= 4, <= 9 per side, 1-2 stages), one layout per cell:
+
+| tested on | layouts | ground-truth clean | fast checker agrees |
+|---|---|---|---|
+| val, test_id (in distribution) | 40 | 40 | 40 |
+| 6-10 inputs | 837 | 837 | 837 |
+| stack depth 5-6 | 249 | 249 | 249 |
+| 10-12 devices per side | 121 | 121 | 121 |
+| adder | 2 | 2 | 2 |
+| 2 stages / 3 stages | 30 / 30 | 30 / 30 | 30 / 30 |
+| **all** | **1,309** | **1,309** | **1,309** |
+
+- **Every deployed layout is DRC-clean and LVS-correct under the full decks**; no false pass of the fast
+  checker in 1,309 layouts. 11 minutes for 1,249 layouts at 12 jobs.
+- Not covered: layouts the fast checker rejects (false fails would only cost area, not correctness), the
+  14-24-per-side probes, and the other models. Summaries: `bench/results/gt_audit_2026_11_26/`.
