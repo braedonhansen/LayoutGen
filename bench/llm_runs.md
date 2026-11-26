@@ -986,3 +986,8 @@ Greedy area / Euler area, trained up to -> tested (pass 100% except where noted)
 - For comparison, two distillation rounds (step05v2s_d2, 2 h in total on top of step05v2s) reach a similar
   training-cell fit and better held-out greedy on most sets (e.g. ood6 1.034, ooddev12 1.123) but the same
   3-stage regression (1.150).
+
+Per-step regret of step05v3s_e2, greedy, same 5,000 cells (`out/regret/greedy_step05v3s_e2.json`): error rate
+start 10.5%, gate 2.2%, sd 2.2%, break 15.3% (930 of 6,064 break steps); share of lost columns start 0.149 /
+gate 0.286 / sd 0.296 / break 0.270. The second epoch lowers every rate (one epoch: 15.5% / 3.25% / 2.65% /
+18.4%); what remains is spread over the continuing steps and the restarts, with no single step to target.
