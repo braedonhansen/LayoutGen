@@ -946,3 +946,43 @@ Greedy area / Euler area, trained up to -> tested, step05v2s -> step05v3s (pass 
   mostly within 0.01, which is the size of the seed spread measured in run16. Both stage probes are better
   (30 cells each, one draw).
 - So the state line alone does not move the single-shot mean. Whether it helps best-of-k is not measured.
+
+## Two epochs on state v3 (step05v3s_e2, 2026-11-26)
+
+`TAG=step05v3s_e2 EPOCHS=2 EVAL_TEMPS=0 SKIP_K32=1 bash cellgym/llm/run20_2026_11_26.sh`: as step05v3s but 2
+epochs (2,913 steps, 205 min). Final val loss 0.0320 against 0.0361 after one epoch. The planned 3-epoch run on
+state v2 (`run19`) was stopped 20 minutes in to make room for this; **more epochs on state v2 is not measured**,
+so epochs and state are not separated beyond the one-epoch v2 -> v3 comparison above.
+
+Greedy on the 5,000 training-distribution cells of `out/distill1`: 61.9% of placements at the label's column
+count (3,095; 27 `cap`), mean excess 0.704 columns. One epoch: 50.4%, 1.003. step05v2s: 42.0%, 1.016;
+step05v2s_d2 (two distillation rounds): 58.9%, 0.672.
+
+Greedy area / Euler area, trained up to -> tested (pass 100% except where noted):
+
+| tested on | cells | step05v2s | step05v3s (1 epoch) | step05v3s_e2 (2 epochs) |
+|---|---|---|---|---|
+| val (in distribution) | 15 | 1.055 | 1.092 | 1.057 |
+| test_id (in distribution) | 25 | 1.039 | 1.022 | 1.016 |
+| 6 inputs (trained <= 5) | 167 | 1.057 | 1.055 | 1.046 |
+| 7 inputs | 205 | 1.039 | 1.049 | 1.039 |
+| 8 inputs | 120 | 1.045 | 1.039 | 1.040 |
+| 9 inputs | 200 | 1.058 | 1.060 (99.0%) | 1.053 (99.5%) |
+| 10 inputs | 145 | 1.043 | 1.033 | 1.029 |
+| stack depth 5 (trained <= 4) | 75 | 1.105 (98.7%) | 1.096 (98.7%) | 1.088 |
+| stack depth 6 | 174 | 1.078 | 1.083 | 1.086 |
+| 10 devices per side (trained <= 9) | 87 | 1.115 | 1.124 | 1.124 (98.9%) |
+| 11 per side | 19 | 1.115 | 1.137 | 1.109 (94.7%, 1 of 19 fails) |
+| 12 per side | 15 | 1.184 | 1.165 | 1.196 |
+| 2 stages (trained 1-2) | 30 | 1.084 | 1.063 | 1.048 |
+| 3 stages | 30 | 1.134 | 1.116 | 1.178 |
+
+- **More epochs fit the training cells much better** (label-match 50% -> 62%, lost columns 1.00 -> 0.70): the
+  one-epoch models were underfit, as suspected in run18.
+- **Held out, the gain is small and only inside or near the trained range**: against step05v2s, 0.004-0.023
+  better on test_id, 6/9/10 inputs, stack depth 5 and 2 stages; level on val, 7 and 8 inputs; **worse** at
+  stack depth 6 (+0.008), 10 and 12 devices per side (+0.009, +0.012) and 3 stages (+0.044, 30 cells), with the
+  first greedy failures at 10-11 per side. The fit to training cells does not carry to the far sets.
+- For comparison, two distillation rounds (step05v2s_d2, 2 h in total on top of step05v2s) reach a similar
+  training-cell fit and better held-out greedy on most sets (e.g. ood6 1.034, ooddev12 1.123) but the same
+  3-stage regression (1.150).
