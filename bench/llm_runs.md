@@ -860,3 +860,38 @@ stage2 1.084 -> 1.060 -> 1.056; stage3 1.134 -> 1.120 -> 1.150. Greedy pass 100%
   round 1 is not confined to the cells it was distilled on.
 - Open: whether best-of-32 survives a second round (run `run12` on `step05v2s_d2`), and where the rounds
   saturate.
+
+## Where a placement loses columns: exact per-step regret (2026-11-26, `cellgym.llm.regret`)
+
+`python -m cellgym.llm.regret --cells out/distill1/cells.json --samples <samples.jsonl> --out out/regret/<name>.json`
+computes, by memoised search over the same moves as `fmt.Placer`, the fewest diffusion breaks still reachable
+from every state of a cell, and replays a placement against it. The regret of a step is the rise in that number
+(plus 1 if the step is itself a break); regrets sum to the placement's breaks minus the cell's minimum. Step
+types: `start` (first column), `gate` (a gate column continuing the row), `sd` (the column closing a gate),
+`break` (a column directly after an sd column; regret 0 means the break was forced). The search never beat a
+label on 1,500 cells checked, so the labels are break-minimal. No CUDA; about 8 minutes per 5,000 cells.
+
+Cells: the 5,000 training-distribution cells of `out/distill1` (drawn from the corpora the models were trained
+on). Greedy (T = 0, one placement per cell) unless stated.
+
+| model | mean excess breaks | error rate per step: start / gate / sd / break | share of lost columns: start / gate / sd / break | first mistake is the start column |
+|---|---|---|---|---|
+| step05v2s | 1.016 | 25.2% / 3.1% / 2.8% / 13.7% | 0.248 / 0.278 / 0.267 / 0.207 | 43.4% |
+| step05v2s, T = 0.7, k = 8 | 1.316 | 31.1% / 3.75% / 3.15% / 19.0% | - | 45.9% |
+| step05v2s_s2 (seed 2) | - | 24.9% / - / - / - | - | 41.3% |
+| step05v2s_d1 | 0.769 | 19.2% / 2.26% / 2.37% / 11.6% | - | - |
+| step05v2s_d2 | 0.672 | 16.2% / 1.87% / 2.23% / 11.0% | - | - |
+
+("-": not copied into this table; every figure is in `out/regret/*.json` on the 3090 PC.) For step05v2s the
+7,655 break steps include 6,603 forced ones; the first mistake comes on average 13% of the way through the
+placement, and the other first mistakes are gate 24.2%, sd 24.2%, break 8.2%.
+
+- **The first column is the most error-prone single step**: a quarter of greedy placements start on a column
+  from which the minimum is no longer reachable, and that is the first mistake in 41-46% of the placements
+  that lose columns. It costs a quarter of the lost columns.
+- **The rest is small per-step lookahead error that adds up**: gate and sd steps are wrong about 3% of the
+  time each, but there are many of them, so together they carry 55% of the lost columns. Restart choices after
+  a break carry 21%.
+- Sampling at T = 0.7 raises every error rate (start 25% -> 31%, break 14% -> 19%), consistent with run17.
+- Distillation lowers every rate (start 25% -> 19% -> 16%); it does not single out one step type.
+- The two seeds agree on the start-column rate to 0.3 points.
