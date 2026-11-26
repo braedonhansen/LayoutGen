@@ -895,3 +895,54 @@ placement, and the other first mistakes are gate 24.2%, sd 24.2%, break 8.2%.
 - Sampling at T = 0.7 raises every error rate (start 25% -> 31%, break 14% -> 19%), consistent with run17.
 - Distillation lowers every rate (start 25% -> 19% -> 16%); it does not single out one step type.
 - The two seeds agree on the start-column rate to 0.3 points.
+
+## State v3: an `odd:` line for the start column (run20, 2026-11-26, `run20_2026_11_26.sh`)
+
+Since the first column is the most error-prone step, state v3 (`CELLGYM_STATE=v3`, `fmt.Placer.odd_nets`) adds
+one line after `open:`: `odd: n=<nets> p=<nets>`, the nets (rails included) with an odd number of unplaced
+device ends in each row. It is a parity count of the device lists, not a search result. **A v3 model needs
+`CELLGYM_STATE=v3` for every inference and scoring command**; run12/run14/run17 take it from the environment.
+
+`step05v3s`: same base (Qwen2.5-0.5B), corpora (`synth5` + `synth2s`, rebuilt as `out/llm/data_v3s`: 663,104
+step examples), recipe, seed and 1 epoch as step05v2s; 107 min on the 3090. Trained axes unchanged (inputs 1-5,
+stack depth <= 4, <= 9 devices per side, 1-2 stages). Only greedy (T = 0, k = 1) was evaluated for this model;
+its T = 0.7 mean and best-of-k are **not measured**.
+
+On the 5,000 training-distribution cells of `out/distill1`, greedy:
+
+| | step05v2s | step05v3s |
+|---|---|---|
+| placements at the label's column count | 42.0% | 50.4% |
+| mean excess breaks | 1.016 | 1.003 |
+| start column wrong | 25.2% | 15.5% |
+| gate / sd step wrong | 3.1% / 2.8% | 3.25% / 2.65% |
+| break step with regret | 13.7% (1,052 of 7,655) | 18.4% (1,395 of 7,573) |
+| share of lost columns: start / gate / sd / break | 0.248 / 0.278 / 0.267 / 0.207 | 0.154 / 0.304 / 0.261 / 0.281 |
+
+Greedy area / Euler area, trained up to -> tested, step05v2s -> step05v3s (pass 100% except where noted):
+
+| tested on | cells | step05v2s | step05v3s |
+|---|---|---|---|
+| val (in distribution) | 15 | 1.055 | 1.092 |
+| test_id (in distribution) | 25 | 1.039 | 1.022 |
+| 6 inputs (trained <= 5) | 167 | 1.057 | 1.055 |
+| 7 inputs | 205 | 1.039 | 1.049 |
+| 8 inputs | 120 | 1.045 | 1.039 |
+| 9 inputs | 200 | 1.058 | 1.060 (99.0% pass, 2 `cap`) |
+| 10 inputs | 145 | 1.043 | 1.033 |
+| stack depth 5 (trained <= 4) | 75 | 1.105 (98.7%) | 1.096 (98.7%) |
+| stack depth 6 | 174 | 1.078 | 1.083 |
+| 10 devices per side (trained <= 9) | 87 | 1.115 | 1.124 |
+| 11 per side | 19 | 1.115 | 1.137 |
+| 12 per side | 15 | 1.184 | 1.165 |
+| 2 stages (trained 1-2) | 30 | 1.084 | 1.063 |
+| 3 stages | 30 | 1.134 | 1.116 |
+
+- **The line does what it was built for and nothing more.** The start-column error falls from 25% to 15%, and
+  eight points more placements reach the label's column count. But the mean number of lost columns is
+  unchanged (1.016 -> 1.003): restart choices after a break got worse (more unforced or badly placed breaks),
+  so the cells that still go wrong lose more.
+- **Held out, greedy area is a wash**: better on six single-stage sets and worse on six, all within 0.04 and
+  mostly within 0.01, which is the size of the seed spread measured in run16. Both stage probes are better
+  (30 cells each, one draw).
+- So the state line alone does not move the single-shot mean. Whether it helps best-of-k is not measured.
