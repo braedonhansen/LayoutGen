@@ -86,3 +86,6 @@ WSL exports `NAME` (the PC name) into every shell: never use `$NAME` as a script
 wrote its outputs under the PC name until renamed).
 
 Do not edit a `run*.sh` while it is running: bash reads the file as it goes and the run breaks.
+
+2026-11-26 timings (3090): 1 epoch on `data_v3s` 107 min, 2 epochs 205 min; `regret` on 5,000 cells ~8-12 min
+(CPU); run12 on one model 95 min. State-v3 models: prefix every command with `CELLGYM_STATE=v3`.

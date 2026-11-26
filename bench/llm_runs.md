@@ -991,3 +991,31 @@ Per-step regret of step05v3s_e2, greedy, same 5,000 cells (`out/regret/greedy_st
 start 10.5%, gate 2.2%, sd 2.2%, break 15.3% (930 of 6,064 break steps); share of lost columns start 0.149 /
 gate 0.286 / sd 0.296 / break 0.270. The second epoch lowers every rate (one epoch: 15.5% / 3.25% / 2.65% /
 18.4%); what remains is spread over the continuing steps and the restarts, with no single step to target.
+
+### step05v3s_e2 with fewest-column selection (`CELLGYM_STATE=v3 bash cellgym/llm/run12_2026_11_24.sh step05v3s_e2=...`, 95 min)
+
+T = 0.7, area / Euler area, pass 100% on every set for both models. Trained up to -> tested, step05v2s ->
+step05v3s_e2:
+
+| tested on | cells | best-of-8 fewcol | best-of-32 fewcol |
+|---|---|---|---|
+| val (in distribution) | 15 | 0.993 -> 1.009 | 0.987 -> 1.004 |
+| test_id (in distribution) | 25 | 0.997 -> 0.994 | 0.987 -> 0.986 |
+| 6 inputs (trained <= 5) | 167 | 0.998 -> 0.997 | 0.985 -> 0.986 |
+| 7 inputs | 205 | 0.997 -> 0.992 | 0.984 -> 0.984 |
+| 8 inputs | 120 | 1.007 -> 0.999 | 0.994 -> 0.992 |
+| 9 inputs | 200 | 1.003 -> 1.001 | 0.992 -> 0.991 |
+| 10 inputs | 145 | 1.005 -> 1.002 | 0.995 -> 0.995 |
+| stack depth 5 (trained <= 4) | 75 | 1.021 -> 1.002 | 0.995 -> 0.983 |
+| stack depth 6 | 174 | 1.016 -> 1.001 | 0.993 -> 0.990 |
+| 10 devices per side (trained <= 9) | 87 | 1.035 -> 1.010 | 0.996 -> 0.996 |
+| 11 per side | 19 | 1.041 -> 1.026 | 1.011 -> 0.998 |
+| 12 per side | 15 | 1.051 -> 1.027 | 1.003 -> 1.003 |
+
+- **At 32 samples the two models are level** (within 0.003 on nine of twelve sets; stack depth 5 and 11 per
+  side 0.012-0.013 better, val 0.017 worse on 15 cells). The deployment result does not change.
+- **At 8 samples step05v3s_e2 is better on the far sets**: 0.015-0.025 at stack depth 5-6 and 10-12 devices
+  per side, 0.001-0.008 on the input-count sets. It reaches with 8 samples roughly what step05v2s needs 16 for.
+- **Not measured for step05v3s_e2**: the T = 0.7 single-shot mean, and the stage probes with selection (run14).
+  Greedy on 3 stages was worse (1.178 against 1.134), so run14 has to be run before this model replaces
+  step05v2s. One seed.

@@ -5,12 +5,17 @@ the machine it was written on. Full results and reasoning: [`llm_runs.md`](llm_r
 four sections first). The project plan and open-item list live in the private notebook doc on claude.ai,
 not in this repo.
 
-## Where the work stands (updated 2026-11-25, 10:00, end of the second local 3090 session)
+## Where the work stands (updated 2026-11-26, 12:30, end of the third local 3090 session)
 
+- 2026-11-26 additions (last four sections of `llm_runs.md`): `cellgym/llm/regret.py` gives the exact per-step
+  break regret of a placement; state v3 (`CELLGYM_STATE=v3`, an `odd:` line) and two models on it,
+  `step05v3s` (1 epoch) and `step05v3s_e2` (2 epochs), script `run20_2026_11_26.sh`. **v3 models need
+  `CELLGYM_STATE=v3` on every infer/score/distill command.** step05v3s_e2 is level with step05v2s at
+  best-of-32, better at best-of-8 on the far sets, and its stage probes with selection are unmeasured, so
+  step05v2s stays the current model until run14 is run on it.
 - 2026-11-25 additions: a second seed of step05v2s (`step05v2s_s2`, run16) reproduces the 3-stage result;
-  the single-shot mean was studied (run17 temperature, run18 distillation; see next step 1). Models on the
-  3090 PC under `out/llm/`: `step05v2s` (current), `step05v2s_s2`, `step05v2s_d1` (better single-shot mean,
-  same best-of-32). Read the last four sections of `llm_runs.md`.
+  the single-shot mean was studied (run17 temperature, run18 distillation). `step05v2s_d1` / `_d2` are the
+  distilled models (better single-shot mean, d1 same best-of-32).
 
 - **Current model: `step05v2s`** (SL only, Qwen2.5-0.5B step policy, v2 state; weights in `out/llm/step05v2s/model`
   on the 3090 PC, not in the repo). **Trained on:** <= 5 inputs, <= 9 devices per side, stack <= 4, 1-2 stages,
@@ -20,7 +25,7 @@ not in this repo.
   3-5 routed per cell). With it step05v2s is at or below Euler area on 6-10 inputs, stack 5-6 and 10 per
   side, 1.011 at 11 and 1.003 at 12 per side, 1.005 on 2-stage and 1.017 on unseen 3-stage cells (one draw;
   level with step05v2 on the single-stage sets).
-- Everything runs locally now (`env/LOCAL.md`); no pod is needed. Scripts `cellgym/llm/run11..run16_2026_11_24.sh`, `run17..run18_2026_11_25.sh`.
+- Everything runs locally now (`env/LOCAL.md`); no pod is needed. Scripts `cellgym/llm/run11..run16_2026_11_24.sh`, `run17..run18_2026_11_25.sh`, `run19..run20_2026_11_26.sh`.
 - Findings of this session (details in `llm_runs.md`, the 2026-11-24 sections):
   - RL with an entropy bonus is not worth it at k > 8: fixed coefficient 0.05 collapses diversity (rl8), 0.3 and
     0.6 diverge (rl10, rl11), per-step break shaping is neutral (rl9), and "SL, sample more" beats every RL
@@ -32,19 +37,18 @@ not in this repo.
 
 ## Next steps (in order)
 
-1. The remaining gap is the **mean** (k = 1): 6-19% above Euler on unseen sets at T = 0.7. Measured on
-   2026-11-25 (run17, run18): greedy removes a quarter to a third of it on the input-count sets; one round of
-   self-distillation (`cellgym/llm/distill.py`, `out/llm/step05v2s_d1`) removes another fifth to a quarter and
-   leaves best-of-32 unchanged. **The gap is already present on the training cells**: step05v2s reaches its
-   own label's column count on 32% of samples and 42% greedily, 25% at 9 per side. So it is a fitting /
-   lookahead problem of the step policy, not a generalisation problem. Untested levers, in the order I would
-   try them: (a) SL for 2-3 epochs instead of 1 (does in-distribution label-match rise?), measured with
-   `distill sample --k 1 --temperature 0` + `select` on the 5,000 cells of `out/distill1/cells.json`;
-   (b) further distillation rounds: a half-size second round (`step05v2s_d2`) raised greedy label-match
-   42% -> 54% -> 59% and improved greedy area on nine of twelve sets, but its best-of-32 is unmeasured
-   (run `run12` on it first); (c) a larger base (Qwen2.5-1.5B);
-   (d) a state feature that exposes what an Euler path needs (odd-degree diffusion nets remaining per row).
-   The label-match rate on training cells takes 7 min per model and is the metric to move first.
+1. The remaining gap is the **mean** (k = 1): 6-19% above Euler on unseen sets at T = 0.7, and it is
+   already present on the training cells (a fitting / lookahead problem, not generalisation). Measured so far,
+   greedy label-match on the 5,000 cells of `out/distill1` (7 min per model, the metric to move first):
+   step05v2s 42%, + state v3 50%, + second epoch 62%; distillation rounds on v2 42% -> 54% -> 59%. Every one of
+   these improves the fit to training cells much more than held-out greedy area, which moves by 0.00-0.02 and
+   gets worse on 3 stages for both the 2-epoch and the twice-distilled model. Per-step regret says the loss is
+   now spread over all steps (start 10%, gate/sd 2% each, restarts 15% wrong), no single target left. Next, in
+   order: (a) run14 (stage probes, k = 32 fewcol) and run17 at T = 0.7 on `step05v3s_e2` with
+   `CELLGYM_STATE=v3`, to decide whether it replaces step05v2s; (b) distill from step05v3s_e2 (run18 with
+   `CELLGYM_STATE=v3`, `BASE=step05v3s_e2`, data built in v3) since distillation gave the best held-out greedy;
+   (c) the 3-stage regression under better fitting: more 2-stage cells or 3-stage cells in the corpus;
+   (d) a larger base (Qwen2.5-1.5B). More epochs on state v2 alone was not measured (`run19` exists, ~7 h for 3).
 2. Euler area references for the 14-24-per-side probes (needs a compact search); without them those probes
    only report pass rates.
 3. Second seed for step05v2 (single-stage training only; still one seed). step05v2s has two
