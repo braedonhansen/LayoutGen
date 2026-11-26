@@ -1107,3 +1107,15 @@ Mean columns / bound columns (cells provably column-minimal), step05v2s | step05
 - The two models are level at k = 32; one seed each, 10-20 cells per probe.
 - Not measured: area against any reference (columns only; area followed columns with r = 0.93 on the
   referenced sets), and ground truth on these layouts (audit below, when run).
+
+### Audit extended: large probes and step05v3s_e2 (same day)
+
+| model | tested on | layouts | ground-truth clean | fast checker agrees |
+|---|---|---|---|---|
+| step05v2s | 8-16 inputs at 14-24 per side (run21, k = 32) | 70 | 70 | 70 |
+| step05v3s_e2 | val, test_id, 6-10 inputs, stack 5-6, 10-12 per side, adder | 1,249 | 1,249 | 1,249 |
+| step05v3s_e2 | 2 stages / 3 stages | 30 / 30 | 30 / 30 | 30 / 30 |
+| step05v3s_e2 | 8-16 inputs at 14-24 per side | 70 | 70 | 70 |
+
+With the table above: **2,758 deployed layouts from two models, all clean under KLayout DRC, Magic DRC and
+Netgen LVS, including every cell at 14-24 devices per side.** No disagreement with the fast checker.
