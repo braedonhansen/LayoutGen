@@ -65,7 +65,7 @@ def test_state_version_from_env():
                              env={**os.environ, "CELLGYM_STATE": v}, capture_output=True, text=True, check=True)
         assert out.stdout.strip() == v
     bad = subprocess.run([sys.executable, "-c", "import cellgym.llm.fmt"],
-                         env={**os.environ, "CELLGYM_STATE": "v3"}, capture_output=True, text=True)
+                         env={**os.environ, "CELLGYM_STATE": "v9"}, capture_output=True, text=True)
     assert bad.returncode != 0 and "CELLGYM_STATE" in bad.stderr
 
 
@@ -119,3 +119,20 @@ def test_corpus_replay_and_renaming(monkeypatch):
             assert set(p.open_nets()) == {x for x in placed & todo if x not in ("VSS", "VDD")}
             p.step(c)
     assert renamed > 50
+
+
+def test_v3_adds_odd_line_from_parity_of_unplaced_ends(monkeypatch):
+    nl = {"devices": [{"type": "nmos", "gate": "A", "drain": "OUT", "source": "n1"},
+                      {"type": "nmos", "gate": "B", "drain": "n1", "source": "VSS"},
+                      {"type": "pmos", "gate": "A", "drain": "OUT", "source": "VDD"},
+                      {"type": "pmos", "gate": "B", "drain": "OUT", "source": "VDD"}]}
+    p = F.Placer(nl)
+    assert p.odd_nets("nmos") == ["OUT", "VSS"] and p.odd_nets("pmos") == []
+    monkeypatch.setattr(F, "STATE_VERSION", "v3")
+    s = p.state()
+    assert s.splitlines()[-2] == "odd: n=OUT,VSS p=-" and s.endswith("next:")
+    monkeypatch.setattr(F, "STATE_VERSION", "v2")
+    assert "odd:" not in p.state()
+    for c in (("sd", "OUT", "OUT"), ("g", "A"), ("sd", "n1", "VDD")):
+        assert p.step(c)
+    assert p.odd_nets("nmos") == ["VSS", "n1"] and p.odd_nets("pmos") == ["OUT", "VDD"]

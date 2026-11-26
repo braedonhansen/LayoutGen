@@ -4,7 +4,7 @@
 #   bash cellgym/llm/run12_2026_11_24.sh [MODEL_TAG=DIR ...]     default: step05v2 and rl8/rl9 best
 cd "$(dirname "$0")/../.." || exit 1
 source "${LG_ENV:-$HOME/lg-env}/bin/activate"
-export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CELLGYM_STATE=v2
+export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CELLGYM_STATE=${CELLGYM_STATE:-v2}
 D=out/llm; P=$D/progress
 say() { echo "$* $(date)" >> $P; }
 M=${*:-step05v2=$D/step05v2/model rl8=$D/rl8/best rl9=$D/rl9/best}

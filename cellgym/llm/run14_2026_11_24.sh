@@ -5,7 +5,7 @@
 #   [VARIANTS=base] bash cellgym/llm/run14_2026_11_24.sh [MODEL_DIR] [TAG]      last progress line RUN14_DONE
 cd "$(dirname "$0")/../.." || exit 1
 source "${LG_ENV:-$HOME/lg-env}/bin/activate"
-export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CELLGYM_STATE=v2
+export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CELLGYM_STATE=${CELLGYM_STATE:-v2}
 D=out/llm; P=$D/progress; M=${1:-$D/step05v2/model}; T=${2:-step05v2}; O=$D/stage/$T; mkdir -p $O
 say() { echo "$* $(date)" >> $P; }
 say "run14 start model=$M"

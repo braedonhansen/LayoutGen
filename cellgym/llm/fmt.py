@@ -25,6 +25,11 @@ Two pipelines, both reading the netlist as text:
            still appear on an unplaced device (gate or terminal); "none" when empty. Its
            length is the channel density at the frontier, not the cell size.
 
+           STATE_VERSION "v3" (CELLGYM_STATE=v3) adds, after open:, the line
+               odd: n=OUT,n1 p=VDD,p2
+           the nets (rails included) with an odd number of unplaced device ends in each row, "-"
+           when none. It is a parity count of the left lists, not a search result.
+
 Augmentation (training only): order-preserving renaming of inputs onto random letters A-Z
 and of internal nets onto random distinct numbers, consistently in prompt and target. Stage nets
 of multi-stage cells (x1, x2, ..) go onto random increasing numbers x1..x9.
@@ -41,8 +46,8 @@ from cellgym.baselines.common import outputs_of
 
 LAST_K = 3
 RAILS = ("VSS", "VDD")
-STATE_VERSIONS = ("v1", "v2")
-STATE_VERSION = os.environ.get("CELLGYM_STATE", "v2")   # v1: no open: line; v2: with it
+STATE_VERSIONS = ("v1", "v2", "v3")
+STATE_VERSION = os.environ.get("CELLGYM_STATE", "v2")   # v1: no open: line; v2: with it; v3: plus odd: line
 if STATE_VERSION not in STATE_VERSIONS:
     raise ValueError(f"CELLGYM_STATE must be one of {STATE_VERSIONS}, got {STATE_VERSION!r}")
 LETTERS = [chr(c) for c in range(ord("A"), ord("Z") + 1)]
@@ -176,7 +181,20 @@ class Placer:
         head = f"left nmos: {self._row('nmos')}\nleft pmos: {self._row('pmos')}\nlast: {last}\n"
         if (version or STATE_VERSION) == "v1":
             return head + "next:"
-        return head + f"open: {' '.join(self.open_nets()) or 'none'}\nnext:"
+        head += f"open: {' '.join(self.open_nets()) or 'none'}\n"
+        if (version or STATE_VERSION) == "v3":
+            head += f"odd: n={','.join(self.odd_nets('nmos')) or '-'} p={','.join(self.odd_nets('pmos')) or '-'}\n"
+        return head + "next:"
+
+    def odd_nets(self, kind: str) -> list[str]:
+        """Nets (rails included) touched by an odd number of unplaced device ends of one row, sorted.
+        A row can be finished without a further break only along a trail whose ends are these nets."""
+        deg = Counter()
+        for (g, t), n in self.left[kind].items():
+            if n > 0 and len(t) == 2:
+                for x in t:
+                    deg[x] += n
+        return sorted(x for x, d in deg.items() if d % 2)
 
     def done(self) -> bool:
         return (not +self.left["nmos"] and not +self.left["pmos"] and bool(self.cols)

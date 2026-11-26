@@ -6,7 +6,7 @@
 # Outputs: out/llm/temp/<tag>/t<T>.jsonl, st_t<T>.jsonl (stage probes), score_t<T>.txt, score_st_t<T>.txt
 cd "$(dirname "$0")/../.." || exit 1
 source "${LG_ENV:-$HOME/lg-env}/bin/activate"
-export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CELLGYM_STATE=v2
+export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CELLGYM_STATE=${CELLGYM_STATE:-v2}
 D=out/llm; P=$D/progress
 say() { echo "$* $(date)" >> $P; }
 M=${*:-step05v2s=$D/step05v2s/model step05v2s_s2=$D/step05v2s_s2/model}
