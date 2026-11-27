@@ -1119,3 +1119,51 @@ Mean columns / bound columns (cells provably column-minimal), step05v2s | step05
 
 With the table above: **2,758 deployed layouts from two models, all clean under KLayout DRC, Magic DRC and
 Netgen LVS, including every cell at 14-24 devices per side.** No disagreement with the fast checker.
+
+## Second seed of the 2-epoch state-v3 model (step05v3s_e2_s2, 2026-11-26/27)
+
+`TAG=step05v3s_e2_s2 EPOCHS=2 SEED=2 bash cellgym/llm/run20_2026_11_26.sh`, then run14 base and run21 with
+`CELLGYM_STATE=v3` (training 3 h 29 min, everything 6 h 38 min on the 3090). Same data and recipe as
+step05v3s_e2; trained on <= 5 inputs, <= 9 devices per side, stack <= 4, 1-2 stages, 1 output. Area / Euler
+area at the area-optimal track count, cells are seed 1 / seed 2. Pass@k is 100% on every row for both seeds.
+
+| tested on | cells | greedy | T = 0.7 mean | best-of-8 fewcol | best-of-32 fewcol |
+|---|---|---|---|---|---|
+| val (in distribution) | 15 | 1.057 / 1.081 | 1.072 / 1.086 | 1.009 / 1.009 | 1.004 / 0.989 |
+| test_id (in distribution) | 25 | 1.016 / 1.027 | 1.031 / 1.040 | 0.994 / 0.991 | 0.986 / 0.986 |
+| 6 inputs (trained <= 5) | 167 | 1.046 / 1.044 | 1.054 / 1.064 | 0.997 / 0.992 | 0.986 / 0.985 |
+| 7 inputs | 205 | 1.039 / 1.036 | 1.065 / 1.062 | 0.992 / 0.991 | 0.984 / 0.983 |
+| 8 inputs | 120 | 1.040 / 1.045 | 1.050 / 1.049 | 0.999 / 0.997 | 0.992 / 0.990 |
+| 9 inputs | 200 | 1.053 / 1.045 | 1.066 / 1.065 | 1.001 / 0.999 | 0.991 / 0.990 |
+| 10 inputs | 145 | 1.029 / 1.031 | 1.043 / 1.045 | 1.002 / 0.998 | 0.995 / 0.993 |
+| stack depth 5 (trained <= 4) | 75 | 1.088 / 1.080 | 1.130 / 1.113 | 1.002 / 1.001 | 0.983 / 0.979 |
+| stack depth 6 | 174 | 1.086 / 1.072 | 1.107 / 1.105 | 1.001 / 1.001 | 0.990 / 0.984 |
+| 10 devices per side (trained <= 9) | 87 | 1.124 / 1.126 | 1.127 / 1.137 | 1.010 / 1.010 | 0.996 / 0.991 |
+| 11 per side | 19 | 1.109 / 1.186 | 1.156 / 1.172 | 1.026 / 1.030 | 0.998 / 1.001 |
+| 12 per side | 15 | 1.196 / 1.154 | 1.237 / 1.204 | 1.027 / 1.034 | 1.003 / 0.997 |
+| 2 stages (trained 1-2) | 30 | 1.048 / 1.088 | 1.080 / 1.092 | 1.015 / 1.004 | 0.995 / 1.001 |
+| 3 stages | 30 | 1.178 / 1.171 | 1.176 / 1.168 | 1.038 / 1.028 | 1.014 / 1.012 |
+
+Greedy pass rate: seed 1 99.5% at 9 inputs, 98.9% at 10 per side, 94.7% at 11 per side (one cell each hit the
+step cap), 100% elsewhere; seed 2 100% everywhere. Per-sample pass at T = 0.7 is 99.8-100% on single-stage
+sets for both seeds; on 3 stages 99.1% / 97.7% at k = 32 (no-routing), 2 stages 100% / 100%.
+
+Large probes at k = 32 (run21), mean columns / bound columns (cells provably column-minimal), pass 100%:
+
+| tested on | cells | seed 1 | seed 2 |
+|---|---|---|---|
+| 8 inputs, 14 per side | 20 | 1.041 (3) | 1.041 (3) |
+| 10 inputs, 16 per side | 20 | 1.024 (6) | 1.024 (6) |
+| 12 inputs, 20 per side (stack 5) | 20 | 1.024 (10) | 1.028 (7) |
+| 16 inputs, 24 per side (stack 5) | 10 | 1.028 (2) | 1.026 (2) |
+
+Greedy on 5,000 training cells: label column count reached on 61.9% / 59.9%, mean 0.70 / 0.76 extra columns.
+
+- **The deployment figure reproduces across seeds**: best-of-32 with fewest-column selection differs by at
+  most 0.006 on every set with 75 cells or more, and by at most 0.015 on the 15-30-cell sets. Both seeds are
+  at 0.98-1.00 of Euler area on every set except 3 stages (1.012-1.014).
+- Best-of-8 reproduces to 0.005 on sets with 75 cells or more; the 3-stage and 2-stage figures move by 0.010.
+- Single-shot figures (greedy, T = 0.7 mean) move by up to 0.02 on large sets and 0.03-0.08 on the 15-30-cell
+  sets (11 per side greedy 1.109 / 1.186), so differences of that size between models on those sets are
+  within seed variation.
+- Not measured: a third seed; seed variation of the corpus build (both seeds train on the same data).

@@ -30,24 +30,35 @@ def breaks(cols) -> int:
     return sum(1 for i in range(1, len(cols)) if cols[i][0] == "sd" and cols[i - 1][0] == "sd")
 
 
-def _exact(job):
-    """(set, cell, exact fewest breaks or None on timeout / memory)"""
+def _solve(nl, conn):
     import resource
-    import signal
     from cellgym.llm.regret import Solver
-    s, c, nl, lim = job
-
-    def stop(*_):
-        raise TimeoutError
     sys.setrecursionlimit(100000)
-    resource.setrlimit(resource.RLIMIT_AS, (4 << 30, 4 << 30))
-    signal.signal(signal.SIGALRM, stop)
-    signal.alarm(lim)
+    resource.setrlimit(resource.RLIMIT_AS, (3 << 30, 3 << 30))
     try:
-        r = Solver(nl).restart(0, 0)
-    except (TimeoutError, MemoryError, RecursionError):
-        r = None
-    signal.alarm(0)
+        conn.send(Solver(nl).restart(0, 0))
+    except (MemoryError, RecursionError):
+        conn.send(None)
+
+
+def _exact(job):
+    """(set, cell, exact fewest breaks or None on timeout / memory). One process per cell, killed at the
+    limit: a worker that dies inside a pool (stack overflow, out of memory) would hang the pool."""
+    import multiprocessing as mp
+    s, c, nl, lim = job
+    ctx = mp.get_context("fork")
+    rx, tx = ctx.Pipe(duplex=False)
+    p = ctx.Process(target=_solve, args=(nl, tx))
+    p.start()
+    tx.close()
+    r = None
+    try:
+        if rx.poll(lim):
+            r = rx.recv()
+    except EOFError:
+        pass
+    p.kill()
+    p.join()
     return s, c, r
 
 
@@ -69,12 +80,14 @@ def main(argv=None) -> int:
             d[r["cell"]] = min(d.get(r["cell"], 10 ** 6), breaks(r["cols"]))
     exact = defaultdict(dict)
     if a.exact:
-        from multiprocessing import Pool
+        from concurrent.futures import ThreadPoolExecutor
         jobs = [(s, c, sets[s][0][c], a.exact) for s in sets for c in best.get(s, {})]
-        with Pool(a.jobs, maxtasksperchild=20) as pool:
-            for s, c, r in pool.imap_unordered(_exact, jobs, chunksize=4):
+        with ThreadPoolExecutor(a.jobs) as pool:
+            for i, (s, c, r) in enumerate(pool.map(_exact, jobs)):
                 if r is not None:
                     exact[s][c] = r
+                if i % 100 == 99:
+                    print(f"exact {i + 1}/{len(jobs)} solved {sum(map(len, exact.values()))}", file=sys.stderr, flush=True)
     out = {}
     print("| set | cells with a placement | mean breaks | mean bound | at the bound | mean columns / bound columns |")
     print("|---|---|---|---|---|---|")
