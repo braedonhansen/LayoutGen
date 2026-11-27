@@ -9,6 +9,7 @@ source "${LG_ENV:-$HOME/lg-env}/bin/activate"
 export PYTHONPATH=. CELLGYM_STATE=v3
 S=${1:-1}; T=step05v3s_e2; [ "$S" = 1 ] || T=${T}_s$S
 J=${JOBS:-8}
+mkdir -p out/llm out/distill1_greedy
 
 # 1. Benchmark cells, Euler plans, and the never-trained-on test sets / probes / area references (bundled).
 [ -d out/cells ] || python -m cellgym.netlists.generate --out out/cells
