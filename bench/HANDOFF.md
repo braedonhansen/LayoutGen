@@ -1,11 +1,28 @@
-# Handoff: continuing on another machine (written 2026-11-24, updated 2026-11-25 after the second local session)
+# Handoff: continuing on another machine (written 2026-11-24, updated 2026-11-27 after the fourth local session)
 
 Branch `m4-benchmark`. Everything needed to pick the work up is in this repo; nothing below depends on
 the machine it was written on. Full results and reasoning: [`llm_runs.md`](llm_runs.md) (read the last
-four sections first). The project plan and open-item list live in the private notebook doc on claude.ai,
+six sections first). The project plan and open-item list live in the private notebook doc on claude.ai,
 not in this repo.
 
-## Where the work stands (updated 2026-11-26, 12:30, end of the third local 3090 session)
+## Where the work stands (updated 2026-11-27, 01:30, end of the fourth local 3090 session)
+
+- **Release candidate: `step05v3s_e2`** (state v3, 2 epochs; second seed `step05v3s_e2_s2`). It replaces
+  step05v2s: level at best-of-32, better at best-of-8 on the far sets, stage probes with selection measured
+  (0.995 / 1.014 on 2 / 3 stages). Both seeds agree to 0.006 at best-of-32 on every set with 75 cells or more.
+  **Needs `CELLGYM_STATE=v3` on every infer/score/distill command.**
+- **Ground truth now runs on the 3090 PC** (WSL distro `Ubuntu-22.04`, see `env/LOCAL.md`). All 2,758 layouts deployed by step05v2s and step05v3s_e2 (single-stage sets, stage probes, large probes) are clean under KLayout DRC, Magic DRC and Netgen LVS; the fast checker agreed on every one. On the 1,234 single-stage test cells an exact solver finishes, step05v3s_e2 is at the minimum column count on 1,177.
+  Export with `python -m cellgym.llm.gtexport`, audit with `python -m cellgym.check.audit`; summaries in
+  `bench/results/gt_audit_2026_11_26/`.
+- **Large probes** (8-16 inputs, 14-24 per side; `run21_2026_11_26.sh`): at k = 32 every cell passes and the
+  column count is within 2.4-4.5% of a search-free lower bound (`regret.break_lower_bound`,
+  `python -m cellgym.llm.bound`). The Euler search and the exact solver do not finish there.
+- `cellgym/llm/reproduce.sh [SEED]` chains corpora, training, evaluation and layout export for the release
+  model. It was written from the commands in `llm_runs.md` and has **not been run end to end**.
+- `README.md` has a "Learned placement model" section with the release tables and the stated limits.
+- Open for discussion with the owner: the headline is parity with the Euler baseline (0.98-1.01), not a win;
+  the argument for the model is that it keeps working where the search stops. Weights are not published
+  (publishing needs the owner's go-ahead).
 
 - 2026-11-26 additions (last four sections of `llm_runs.md`): `cellgym/llm/regret.py` gives the exact per-step
   break regret of a placement; state v3 (`CELLGYM_STATE=v3`, an `odd:` line) and two models on it,
@@ -17,7 +34,7 @@ not in this repo.
   the single-shot mean was studied (run17 temperature, run18 distillation). `step05v2s_d1` / `_d2` are the
   distilled models (better single-shot mean, d1 same best-of-32).
 
-- **Current model: `step05v2s`** (SL only, Qwen2.5-0.5B step policy, v2 state; weights in `out/llm/step05v2s/model`
+- Previous model: `step05v2s` (SL only, Qwen2.5-0.5B step policy, v2 state; weights in `out/llm/step05v2s/model`
   on the 3090 PC, not in the repo). **Trained on:** <= 5 inputs, <= 9 devices per side, stack <= 4, 1-2 stages,
   1 output. **Tested on:** 6-10 inputs, stack 5-6, 10-12 per side, probes up to 16 inputs / 24 per side,
   3 stages with 1-2 outputs. The top rung of every axis stays unseen.
@@ -44,21 +61,20 @@ not in this repo.
    these improves the fit to training cells much more than held-out greedy area, which moves by 0.00-0.02 and
    gets worse on 3 stages for both the 2-epoch and the twice-distilled model. Per-step regret says the loss is
    now spread over all steps (start 10%, gate/sd 2% each, restarts 15% wrong), no single target left. Next, in
-   order: (a) run14 (stage probes, k = 32 fewcol) and run17 at T = 0.7 on `step05v3s_e2` with
-   `CELLGYM_STATE=v3`, to decide whether it replaces step05v2s; (b) distill from step05v3s_e2 (run18 with
+   order: (a) done 2026-11-26 (run14 and run17 on `step05v3s_e2`: it replaces step05v2s); (b) distill from step05v3s_e2 (run18 with
    `CELLGYM_STATE=v3`, `BASE=step05v3s_e2`, data built in v3) since distillation gave the best held-out greedy;
    (c) the 3-stage regression under better fitting: more 2-stage cells or 3-stage cells in the corpus;
    (d) a larger base (Qwen2.5-1.5B). More epochs on state v2 alone was not measured (`run19` exists, ~7 h for 3).
-2. Euler area references for the 14-24-per-side probes (needs a compact search); without them those probes
-   only report pass rates.
+2. Area references for the 14-24-per-side probes (needs a compact search). Columns now have a lower bound
+   (`cellgym.llm.bound`); area there is still unreferenced.
 3. Second seed for step05v2 (single-stage training only; still one seed). step05v2s has two
    (`out/llm/step05v2s_s2`, run16): the 3-stage result reproduces (best-of-32 1.014 / 1.007), seed spread is
    <= 0.002 at fewest-column best-of-32 on all single-stage sets but 12 per side (0.011), and up to 0.025 on
    the plain k = 8 mean.
 4. Multi-output training cells (the 3-stage probe's `OUT1 OUT2` are still unseen tokens), then a 4-stage probe
    as the new top rung.
-5. Ground truth (KLayout + Magic + Netgen) is not installed on the 3090 PC: audits of the fast checker still
-   need an Ubuntu 22.04 environment (`env/SETUP.md`).
+5. Release packaging: run `cellgym/llm/reproduce.sh` end to end once (about 7 h), decide where the weights go,
+   write a model card from the README section.
 
 ## Restore the local state
 
@@ -90,8 +106,8 @@ python -m pytest tests                                                 # last fu
 
 A pod run needs the repo plus `out/arearef`, `out/probe` and the test-set directories uploaded to the pod
 (the run scripts expect them shipped, not built there). Ground truth
-(KLayout, Magic, Netgen) needs the WSL2 environment in [`../env/SETUP.md`](../env/SETUP.md); nothing in
-the next steps requires it.
+(KLayout, Magic, Netgen) needs the WSL2 environment in [`../env/SETUP.md`](../env/SETUP.md); on the 3090 PC
+it is the `Ubuntu-22.04` distro (`../env/LOCAL.md`).
 
 ## Machine setup for pod runs
 
@@ -116,4 +132,4 @@ the next steps requires it.
 - Never leave a billed pod idle. Terminating it is the first action when a run finishes (an idle pod cost
   about $5 on 2026-11-20; spend that session was $10.20 against a $7 cap).
 - Report every result as trained-on against tested-on, per axis.
-- Environment switches: `CELLGYM_STATE=v1|v2` (step state, default v2), `CELLGYM_AREAREF=heur|euler+heur`.
+- Environment switches: `CELLGYM_STATE=v1|v2|v3` (step state, default v2; the release model is v3), `CELLGYM_AREAREF=heur|euler+heur`.

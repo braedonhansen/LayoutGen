@@ -1,0 +1,15 @@
+| set | cells with a placement | mean breaks | mean bound | at the bound | mean columns / bound columns |
+|---|---|---|---|---|---|
+| val | 15 / 15 | 0.27 | 0.20 | 14 | 1.004 | exact: solved 15, model at the minimum 15, mean minimum 0.267
+| test_id | 25 / 25 | 0.32 | 0.08 | 19 | 1.019 | exact: solved 25, model at the minimum 25, mean minimum 0.32
+| ood6_dev | 167 / 167 | 0.51 | 0.28 | 128 | 1.014 | exact: solved 167, model at the minimum 167, mean minimum 0.509
+| ood7_dev | 205 / 205 | 0.68 | 0.24 | 117 | 1.024 | exact: solved 205, model at the minimum 200, mean minimum 0.659
+| ood8_dev | 120 / 120 | 0.72 | 0.25 | 66 | 1.025 | exact: solved 120, model at the minimum 113, mean minimum 0.658
+| ood9_all | 200 / 200 | 0.80 | 0.28 | 110 | 1.025 | exact: solved 200, model at the minimum 184, mean minimum 0.71
+| ood10_all | 145 / 145 | 0.81 | 0.23 | 66 | 1.027 | exact: solved 145, model at the minimum 137, mean minimum 0.759
+| oodstack5_dev | 75 / 75 | 0.77 | 0.48 | 53 | 1.016 | exact: solved 75, model at the minimum 73, mean minimum 0.747
+| oodstack6_all | 174 / 174 | 0.66 | 0.22 | 101 | 1.023 | exact: solved 174, model at the minimum 164, mean minimum 0.603
+| ooddev10_dev | 87 / 87 | 0.62 | 0.15 | 49 | 1.022 | exact: solved 87, model at the minimum 80, mean minimum 0.54
+| ooddev11_dev | 19 / 19 | 0.53 | 0.00 | 10 | 1.023 | exact: solved 19, model at the minimum 17, mean minimum 0.421
+| ooddev12_all | 15 / 15 | 0.60 | 0.00 | 6 | 1.024 | exact: solved 0, model at the minimum 0, mean minimum None
+| adder | 2 / 2 | 0.00 | 0.00 | 2 | 1.000 | exact: solved 2, model at the minimum 2, mean minimum 0

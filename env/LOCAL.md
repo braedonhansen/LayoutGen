@@ -14,10 +14,29 @@ below runs in WSL from the Windows checkout (`/mnt/c/Users/<you>/LayoutGen`);
 | Qwen2.5-0.5B SL (`cellgym.llm.train`) | yes | 24 GB, same as the 4090 pod; measured 69 min against the pod's 32 |
 | Step-policy RL (`cellgym.llm.rl`) | yes | pod run was 4.9 h on an A40 (roughly 3090 speed): an overnight job |
 | Bigger bases (1.5B-3B full fine-tune, 7B LoRA) | yes, not yet tried | needs `--grad-ckpt` or smaller `--micro-tokens` |
-| Ground truth (KLayout + Magic + Netgen) | not yet | `SETUP.md` targets Ubuntu 22.04; this WSL is 26.04, where the KLayout `.deb` deps (Qt5, libruby3.0, libgit2-1.1) are gone. Needs an Ubuntu-22.04 WSL distro or a ported setup. Only audits need it; training uses the fast checker |
+| Ground truth (KLayout + Magic + Netgen) | yes, in a second distro | WSL distro `Ubuntu-22.04` (this one is 26.04, where the KLayout `.deb` deps are gone); see "Ground truth" below |
 
 No pod is needed for anything on the current roadmap. A pod only buys wall-clock
 (parallel runs) from here on.
+
+## Ground truth (second WSL distro, 2026-11-26)
+
+`wsl --install -d Ubuntu-22.04 --no-launch`, then `env/SETUP.md` as root inside it (about 10 min: miniforge
+env `cellgym` with Magic 8.3.465 and Netgen 1.5.272, KLayout 0.30.12, PDK open_pdks `792ef67` in `/root/pdk`).
+The distro has no GPU stack and no venv; it is only used for audits. The two distros share the checkout
+through `/mnt/c`, so layouts are exported in `Ubuntu` and audited in `Ubuntu-22.04`:
+
+```bash
+# in Ubuntu (lg-env): write the layouts a sample file deploys (fewest-column, k = 32) as .plan + .json
+python -m cellgym.llm.gtexport out/llm/k32/TAG/samples.jsonl --out out/gtaudit/TAG --k 32 --jobs 4
+# in Ubuntu-22.04 as root: wsl -d Ubuntu-22.04 -u root -- bash script.sh
+source ~/miniforge3/etc/profile.d/conda.sh; conda activate cellgym; export PDK_ROOT=$HOME/pdk PYTHONPATH=.
+python -m cellgym.check.audit out/gtaudit/TAG --cells out/gtaudit/TAG --jobs 6 --workdir $HOME/gt/TAG   --json out/gtaudit/TAG.audit.json --md out/gtaudit/TAG.audit.md
+```
+
+Timing: 1,249 layouts in 11-14 min at 6-12 jobs; export of the same set takes longer than that at 4 jobs (routing).
+`wsl -- bash -c '... $VAR ...'` from Git Bash expands `$VAR` before the inner shell sees it: put anything
+that uses shell variables in a script file and run that.
 
 ## Setup (no sudo)
 

@@ -1161,9 +1161,45 @@ Greedy on 5,000 training cells: label column count reached on 61.9% / 59.9%, mea
 
 - **The deployment figure reproduces across seeds**: best-of-32 with fewest-column selection differs by at
   most 0.006 on every set with 75 cells or more, and by at most 0.015 on the 15-30-cell sets. Both seeds are
-  at 0.98-1.00 of Euler area on every set except 3 stages (1.012-1.014).
+  at 0.98-1.00 of Euler area (to two decimals) on every set except 3 stages (1.012-1.014).
 - Best-of-8 reproduces to 0.005 on sets with 75 cells or more; the 3-stage and 2-stage figures move by 0.010.
-- Single-shot figures (greedy, T = 0.7 mean) move by up to 0.02 on large sets and 0.03-0.08 on the 15-30-cell
+- Single-shot figures (greedy, T = 0.7 mean) move by up to 0.02 on large sets and 0.01-0.08 on the 15-30-cell
   sets (11 per side greedy 1.109 / 1.186), so differences of that size between models on those sets are
   within seed variation.
 - Not measured: a third seed; seed variation of the corpus build (both seeds train on the same data).
+
+## Column counts against the exact minimum (step05v3s_e2, 2026-11-27, `python -m cellgym.llm.bound --exact 60`)
+
+`python -m cellgym.llm.bound out/llm/k32/step05v3s_e2/samples.jsonl --k 32 --exact 60 --jobs 8`
+(`out/bound/step05v3s_e2_k32.txt`, 25 min while an audit shared the CPU). `regret.Solver` gives the fewest
+diffusion breaks any placement of the cell can have (both rows sharing one gate order), so
+columns = 2 x devices per side + 1 + breaks is minimal exactly when breaks are. One process per cell, 60 s and
+3 GB each. Model: step05v3s_e2 seed 1, fewest-column sample among 32 at T = 0.7; trained on <= 5 inputs,
+<= 9 per side, stack <= 4, 1-2 stages.
+
+| tested on | cells | solved exactly | model at the minimum | mean breaks, model / minimum |
+|---|---|---|---|---|
+| val (in distribution) | 15 | 15 | 15 | 0.27 / 0.27 |
+| test_id (in distribution) | 25 | 25 | 25 | 0.32 / 0.32 |
+| 6 inputs (trained <= 5) | 167 | 167 | 167 | 0.51 / 0.51 |
+| 7 inputs | 205 | 205 | 200 | 0.68 / 0.66 |
+| 8 inputs | 120 | 120 | 113 | 0.72 / 0.66 |
+| 9 inputs | 200 | 200 | 184 | 0.80 / 0.71 |
+| 10 inputs | 145 | 145 | 137 | 0.81 / 0.76 |
+| stack depth 5 (trained <= 4) | 75 | 75 | 73 | 0.77 / 0.75 |
+| stack depth 6 | 174 | 174 | 164 | 0.66 / 0.60 |
+| 10 devices per side (trained <= 9) | 87 | 87 | 80 | 0.62 / 0.54 |
+| 11 per side | 19 | 19 | 17 | 0.53 / 0.42 |
+| 12 per side | 15 | 0 | - | 0.60 / - |
+| adder | 2 | 2 | 2 | 0 / 0 |
+
+- **On 1,177 of the 1,234 cells the solver finishes (95.4%), the deployed placement has the minimum possible
+  number of columns**; every cell where it does not is one break (one column pair) or more above. In
+  distribution and at 6 inputs it is 207 of 207; the worst set is 11 per side (17 of 19) and 9 inputs (92%).
+- This is why area sits at parity with the Euler baseline: on these sets the baseline is itself at or near
+  the column minimum, so there is no column to win. What is left for area is routing (track count), which is
+  not learned.
+- The search-free lower bound of run21 is tight on 766 of the 1,234 solved cells (62%), so the 2.4-4.5% gap
+  to that bound on the large probes overstates the distance to the minimum.
+- Not measured: 12 per side (0 of 15 solved in 60 s, with the audit sharing the CPU) and the 14-24-per-side
+  probes (no exact minimum); seed 2; k = 8; whether the cells not at the minimum are ones where Euler is.
