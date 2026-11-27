@@ -18,7 +18,9 @@ not in this repo.
   column count is within 2.4-4.5% of a search-free lower bound (`regret.break_lower_bound`,
   `python -m cellgym.llm.bound`). The Euler search and the exact solver do not finish there.
 - `cellgym/llm/reproduce.sh [SEED]` chains corpora, training, evaluation and layout export for the release
-  model. It was written from the commands in `llm_runs.md` and has **not been run end to end**.
+  model. Run end to end from a clean clone on 2026-11-27 (6 h 45 min after corpora): data byte-identical, results
+  within 0.004 of seed 1 on single-stage sets, one 3-stage cell of 30 without a passing layout (the fewest-column
+  rule has no fallback to the next column count; worth adding).
 - `README.md` has a "Learned placement model" section with the release tables and the stated limits.
 - Open for discussion with the owner: the headline is parity with the Euler baseline (0.98-1.01), not a win;
   the argument for the model is that it keeps working where the search stops. Weights are not published
@@ -73,8 +75,8 @@ not in this repo.
    the plain k = 8 mean.
 4. Multi-output training cells (the 3-stage probe's `OUT1 OUT2` are still unseen tokens), then a 4-stage probe
    as the new top rung.
-5. Release packaging: run `cellgym/llm/reproduce.sh` end to end once (about 7 h), decide where the weights go,
-   write a model card from the README section.
+5. Release packaging: decide where the weights go, write a model card from the README section, add a
+   fallback to the next column count in fewest-column selection and re-measure the 3-stage pass rate.
 
 ## Restore the local state
 

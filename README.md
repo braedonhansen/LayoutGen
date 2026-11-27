@@ -101,11 +101,17 @@ What this does not show:
   cell on an RTX 3090 at 14 to 24 devices per side).
 - Hand-made sky130_fd_sc_hd cells are narrower and shorter than both the model
   and the baseline ([`bench/human_v0.md`](bench/human_v0.md)).
+- Fewest-column selection has no fallback: if none of a cell's fewest-column
+  placements routes, the cell fails (seen once, on a 3-stage cell, in three
+  trained models).
 - Cells are single-output static CMOS without taps; no timing, power or
   parasitics are measured.
 
-Reproduce (24 GB GPU; training about 3.5 h, evaluation about 3 h; the script
-has not yet been run end to end in one go): `bash cellgym/llm/reproduce.sh`.
+Reproduce (24 GB GPU, about 7.5 h on an RTX 3090 including 30 min of corpus
+building): `bash cellgym/llm/reproduce.sh`. Run once from a clean clone: the
+training data came out byte-identical and the retrained model landed within
+0.004 of the seed-1 column on every single-stage set but val (0.015), with one
+of the 30 three-stage cells left without a passing layout (pass 96.7% there).
 Weights are not published yet. Every run, with what it was trained on and
 tested on: [`bench/llm_runs.md`](bench/llm_runs.md).
 

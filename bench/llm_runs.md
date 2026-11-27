@@ -1208,3 +1208,32 @@ columns = 2 x devices per side + 1 + breaks is minimal exactly when breaks are. 
   to that bound on the large probes overstates the distance to the minimum.
 - Not measured: 12 per side (0 of 15 solved in 60 s, with the audit sharing the CPU) and the 14-24-per-side
   probes (no exact minimum); seed 2; k = 8; whether the cells not at the minimum are ones where Euler is.
+
+## `reproduce.sh` run end to end from a clean clone (2026-11-27)
+
+`git clone` of `m4-benchmark` into `~/lg-repro` (Linux filesystem, nothing copied from the working `out/`),
+then `bash cellgym/llm/reproduce.sh 1`. The first attempt stopped at step 3 because `out/llm` did not exist
+(fixed in the script); the rerun reused the corpora already built and finished in 6 h 45 min (01:24-08:09).
+
+- Corpora and step examples are deterministic: `out/synth5/plans.jsonl`, `out/synth2s/plans.jsonl` and
+  `out/llm/data_v3s/step_train.jsonl` are byte-identical (md5) to the ones the reported models trained on.
+- Training is not bit-reproducible on the GPU, so this is a third model with seed 1's settings. Trained on
+  <= 5 inputs, <= 9 per side, stack <= 4, 1-2 stages, 1 output. Area / Euler area, best-of-32 fewcol,
+  reported seed 1 -> rerun:
+
+| tested on | cells | pass@32 | reported -> rerun |
+|---|---|---|---|
+| val / test_id (in distribution) | 15 / 25 | 100 / 100 | 1.004 -> 0.989 / 0.986 -> 0.988 |
+| 6 / 7 / 8 / 9 / 10 inputs | 167 / 205 / 120 / 200 / 145 | 100 each | 0.986 -> 0.988 / 0.984 -> 0.985 / 0.992 -> 0.991 / 0.991 -> 0.991 / 0.995 -> 0.995 |
+| stack depth 5 / 6 | 75 / 174 | 100 / 100 | 0.983 -> 0.982 / 0.990 -> 0.986 |
+| 10 / 11 / 12 per side | 87 / 19 / 15 | 100 each | 0.996 -> 0.995 / 0.998 -> 1.002 / 1.003 -> 1.000 |
+| 2 stages / 3 stages | 30 / 30 | 100 / **96.7** | 0.995 -> 1.002 / 1.014 -> 1.021 |
+| 8-16 inputs at 14-24 per side (columns / bound) | 70 | 100 | 1.041, 1.024, 1.024, 1.028 -> 1.041, 1.026, 1.024, 1.020 |
+
+- **The script reproduces the reported result**: every single-stage set within 0.004 of the reported figure
+  except val (15 cells, 0.015); greedy label-match 61.3% (reported 61.9%).
+- **One 3-stage cell of 30 has no passing layout in the rerun** (none of its fewest-column placements routes),
+  so 3-stage pass@32 with fewest-column selection is 100% / 100% / 96.7% over the three models. The selection
+  rule has no fallback to the next column count; that is a recipe gap, not measured further here.
+- Greedy pass in the rerun: 99.5% at 7 and 9 inputs, 97.7% at 10 per side, 94.7% at 11 per side, 100% elsewhere.
+- Not done for the rerun: the ground-truth audit of its exported layouts (exported to `~/lg-repro/out/gtaudit`).
