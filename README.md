@@ -86,8 +86,8 @@ per side, 70 cells, where the Euler search did not finish in 60 s per cell at 14
 every cell is placed, routed and passes; the column count is within 2.4 to 4.1%
 of a lower bound that needs no search, for both seeds.
 
-Ground truth: all 2,758 layouts the recipe deploys on these sets for two models
-(the release model's first seed and its predecessor) are clean under KLayout
+Ground truth: all 4,137 layouts the recipe deploys on these sets for three
+models (both seeds of the release model and its predecessor) are clean under KLayout
 DRC, Magic DRC and Netgen LVS, with no disagreement with the fast checker.
 
 What this does not show:

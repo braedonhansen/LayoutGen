@@ -1168,6 +1168,11 @@ Greedy on 5,000 training cells: label column count reached on 61.9% / 59.9%, mea
   within seed variation.
 - Not measured: a third seed; seed variation of the corpus build (both seeds train on the same data).
 
+Ground-truth audit of seed 2's deployed layouts (2026-11-27, same tools and exclusions as the audit sections
+above): 1,249 single-stage + 60 stage-probe + 70 large-probe layouts, **1,379 of 1,379 clean** under KLayout
+DRC, Magic DRC and Netgen LVS, fast checker in agreement on all. With the earlier audits: 4,137 deployed
+layouts from three models (step05v2s, step05v3s_e2 seeds 1 and 2), all clean.
+
 ## Column counts against the exact minimum (step05v3s_e2, 2026-11-27, `python -m cellgym.llm.bound --exact 60`)
 
 `python -m cellgym.llm.bound out/llm/k32/step05v3s_e2/samples.jsonl --k 32 --exact 60 --jobs 8`

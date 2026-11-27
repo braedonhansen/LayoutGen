@@ -11,7 +11,7 @@ not in this repo.
   step05v2s: level at best-of-32, better at best-of-8 on the far sets, stage probes with selection measured
   (0.995 / 1.014 on 2 / 3 stages). Both seeds agree to 0.006 at best-of-32 on every set with 75 cells or more.
   **Needs `CELLGYM_STATE=v3` on every infer/score/distill command.**
-- **Ground truth now runs on the 3090 PC** (WSL distro `Ubuntu-22.04`, see `env/LOCAL.md`). All 2,758 layouts deployed by step05v2s and step05v3s_e2 (single-stage sets, stage probes, large probes) are clean under KLayout DRC, Magic DRC and Netgen LVS; the fast checker agreed on every one. On the 1,234 single-stage test cells an exact solver finishes, step05v3s_e2 is at the minimum column count on 1,177.
+- **Ground truth now runs on the 3090 PC** (WSL distro `Ubuntu-22.04`, see `env/LOCAL.md`). All 4,137 layouts deployed by step05v2s and both seeds of step05v3s_e2 (single-stage sets, stage probes, large probes) are clean under KLayout DRC, Magic DRC and Netgen LVS; the fast checker agreed on every one. On the 1,234 single-stage test cells an exact solver finishes, step05v3s_e2 is at the minimum column count on 1,177.
   Export with `python -m cellgym.llm.gtexport`, audit with `python -m cellgym.check.audit`; summaries in
   `bench/results/gt_audit_2026_11_26/`.
 - **Large probes** (8-16 inputs, 14-24 per side; `run21_2026_11_26.sh`): at k = 32 every cell passes and the
