@@ -94,8 +94,12 @@ What this does not show:
 
 - The model matches the Euler baseline on area (within about 2% either way on
   every set); it does not clearly beat it, and on columns there is nothing
-  left to win on these sets. What it adds is that it keeps working where the
-  search stops.
+  left to win on these sets.
+- Working where the exhaustive search stops is not an advantage over classical
+  methods: a randomised greedy placer with no search (`cellgym.llm.classical`)
+  reaches the same or fewer columns on every set at equal sample count, far
+  faster, and at 14 to 24 devices per side one of its tries is better than one
+  model sample. No measured regime has the model ahead on columns.
 - A single greedy placement is 2 to 20% larger than the baseline (3 to 5% on
   the 6-to-10-input sets); the result above needs 32 samples (about 10 s per
   cell on an RTX 3090 at 14 to 24 devices per side).

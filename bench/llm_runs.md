@@ -1237,3 +1237,60 @@ then `bash cellgym/llm/reproduce.sh 1`. The first attempt stopped at step 3 beca
   rule has no fallback to the next column count; that is a recipe gap, not measured further here.
 - Greedy pass in the rerun: 99.5% at 7 and 9 inputs, 97.7% at 10 per side, 94.7% at 11 per side, 100% elsewhere.
 - Not done for the rerun: the ground-truth audit of its exported layouts (exported to `~/lg-repro/out/gtaudit`).
+
+## A search-free classical placer as the scalable reference (2026-11-27, `cellgym.llm.classical`)
+
+Question: the Euler search stops at 14 devices per side, so is that where the model has the field to itself?
+`cellgym/llm/classical.py` is a randomised greedy placer on the same state machine (take a gate that continues
+both rows, preferring one whose next state can also continue; otherwise break and restart on odd-degree nets).
+No learning, no search, no memo; 1,000 tries take 0.2-0.8 s per cell on the test sets and 1.3-3.0 s at 14-24
+per side, on one CPU core. Model: step05v3s_e2 seed 1 (trained on <= 5 inputs, <= 9 per side, stack <= 4,
+1-2 stages). Mean diffusion breaks per cell (columns = 2 x devices per side + 1 + breaks); every placement
+counted, routed or not.
+
+One placement:
+
+| tested on | cells | model greedy | model T = 0.7 | classical, one try |
+|---|---|---|---|---|
+| val / test_id (in distribution) | 15 / 25 | 0.73 / 0.48 | 0.87 / 0.67 | 0.93 / 0.92 |
+| 6 / 7 / 8 / 9 / 10 inputs | 167 / 205 / 120 / 200 / 145 | 1.04 / 1.22 / 1.25 / 1.61 / 1.28 | 1.22 / 1.49 / 1.33 / 1.75 / 1.45 | 1.54 / 1.72 / 1.42 / 1.79 / 1.62 |
+| stack depth 5 / 6 | 75 / 174 | 1.83 / 1.67 | 2.14 / 1.90 | 2.08 / 1.93 |
+| 10 / 11 / 12 per side | 87 / 19 / 15 | 2.13 / 1.89 / 3.27 | 2.34 / 2.71 / 3.61 | 2.16 / 2.63 / 3.20 |
+| 8 / 10 / 12 / 16 inputs at 14 / 16 / 20 / 24 per side | 20 / 20 / 20 / 10 | not run | 4.94 / 5.61 / 8.89 / 12.19 | 3.45 / 3.15 / 3.45 / 5.70 |
+
+Best of N (model: fewest-column sample of 32 at T = 0.7), and cells where the model has fewer / the same / more
+breaks than classical best of 1,000:
+
+| tested on | cells | model best of 32 | classical best of 32 | classical best of 1,000 | model fewer / same / more |
+|---|---|---|---|---|---|
+| val | 15 | 0.27 | 0.27 | 0.27 | 0 / 15 / 0 |
+| test_id | 25 | 0.32 | 0.32 | 0.32 | 0 / 25 / 0 |
+| 6 inputs | 167 | 0.51 | 0.51 | 0.51 | 0 / 167 / 0 |
+| 7 inputs | 205 | 0.68 | 0.67 | 0.67 | 0 / 203 / 2 |
+| 8 inputs | 120 | 0.72 | 0.67 | 0.67 | 0 / 114 / 6 |
+| 9 inputs | 200 | 0.80 | 0.72 | 0.71 | 0 / 185 / 15 |
+| 10 inputs | 145 | 0.81 | 0.77 | 0.77 | 0 / 138 / 7 |
+| stack depth 5 | 75 | 0.77 | 0.76 | 0.75 | 0 / 73 / 2 |
+| stack depth 6 | 174 | 0.66 | 0.70 | 0.68 | 7 / 161 / 6 |
+| 10 per side | 87 | 0.62 | 0.60 | 0.56 | 1 / 80 / 6 |
+| 11 per side | 19 | 0.53 | 0.42 | 0.42 | 0 / 17 / 2 |
+| 12 per side | 15 | 0.60 | 0.67 | 0.47 | 0 / 13 / 2 |
+| 8 inputs, 14 per side | 20 | 1.30 | 1.05 | 0.95 | 0 / 13 / 7 |
+| 10 inputs, 16 per side | 20 | 0.80 | 0.80 | 0.75 | 0 / 19 / 1 |
+| 12 inputs, 20 per side | 20 | 1.75 | 1.45 | 1.25 | 0 / 13 / 7 |
+| 16 inputs, 24 per side | 10 | 1.80 | 1.50 | 1.50 | 2 / 5 / 3 |
+
+- **The classical placer is at least as good as the model at equal sample count on every set but stack depth 6
+  and 12 per side, and better with 1,000 tries, which cost it less than one model sample.** Over the 1,319
+  cells the model has fewer breaks on 10 and more on 66. Against the exact minimum (known on 1,234 cells),
+  classical best of 1,000 is within 0.02 mean breaks on every set but stack depth 6 (0.68 against 0.60), so it
+  is not exact either; stack depth 6 is the one set where the model (0.66) is closer.
+- **One placement: the model is better inside and near its training limits and worse far outside them.**
+  Greedy beats one classical try by 0.2-0.5 breaks in distribution and at 6-7 inputs, is level at 9 inputs and
+  10-12 per side, and at 14-24 per side a model sample has 1.4-2.6 times the breaks of one classical try. So
+  the placement skill the model learned does not extend to where the Euler search stops; best-of-32 hides that.
+- Consequence for the claims: "keeps working where the search stops" is true but not a contribution, since a
+  100-line heuristic does the same faster. No measured regime has the model ahead of a classical method on
+  columns.
+- Not measured: area and routability of the classical placements (breaks only; they go through the same
+  router, not run here); the classical placer against the model at more than 24 per side; rule "plain".
