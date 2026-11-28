@@ -1,0 +1,6 @@
+| set | cells | model best of 32 | classical best of 1 | classical best of 32 | classical best of 1000 | classical 10 s | model fewer / same / more breaks than the last column | classical s per cell for 1000 |
+|---|---|---|---|---|---|---|---|---|
+| i16d32 | 10 | 0.30 | 10.50 | 3.40 | 1.90 | 1.80 | 9 / 1 / 0 | 13.62 |
+| i20d48 | 10 | 0.40 | 14.50 | 3.50 | 2.00 | 2.00 | 8 / 2 / 0 | 43.94 |
+| i24d64 | 10 | 0.00 | 24.60 | 8.10 | 4.10 | 4.10 | 10 / 0 / 0 | 144.39 |
+| stage4 | 10 | 1.50 | 6.50 | 3.50 | 2.90 | 2.90 | 9 / 1 / 0 | 5.02 |

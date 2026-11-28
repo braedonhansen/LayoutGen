@@ -1294,3 +1294,26 @@ breaks than classical best of 1,000:
   columns.
 - Not measured: area and routability of the classical placements (breaks only; they go through the same
   router, not run here); the classical placer against the model at more than 24 per side; rule "plain".
+
+### The classical placer at 32-64 devices per side (same day, no model run)
+
+New probes in `out/probe2` (`python -m cellgym.llm.probe --out out/probe2 --spec 16:32:6 20:48:7 24:64:8
+--count 10`, and `--stages 4 --per-side 20:28 --outputs 1:2 --max-primary 8`; 10 cells each; 6- and 8-stage
+sets did not build within 15 min each). `python -m cellgym.llm.classical none --extra ... --tries 1 32 1000
+--secs 10`. Mean breaks; the floor is `regret.break_lower_bound`, which is loose.
+
+| probe | cells | floor | one try | best of 32 | best of 1,000 | columns / floor columns at 1,000 | s per cell for 1,000 |
+|---|---|---|---|---|---|---|---|
+| 16 inputs, 32 per side, stack 6 | 10 | 0.30 | 10.5 | 3.4 | 1.9 | 1.025 | 14 |
+| 20 inputs, 48 per side, stack 7 | 10 | 0.40 | 14.5 | 3.5 | 2.0 | 1.016 | 44 |
+| 24 inputs, 64 per side, stack 8 | 10 | 0.00 | 24.6 | 8.1 | 4.1 | 1.032 | 144 |
+| 4 stages, 20-21 per side | 10 | 1.50 | 6.5 | 3.5 | 2.9 | 1.033 | 5 |
+
+- The heuristic does not fall apart in relative terms: best of 1,000 stays within 1.6-3.3% of the floor on
+  columns from 14 to 64 per side (14-24 per side: 1.02-1.03 above). In absolute terms it leaves 1.4-4.1
+  breaks per cell above the floor, it reaches the floor on 0-2 cells of 10, and a further 10 s of tries does
+  not improve it.
+- So the room for anything better than this heuristic at these sizes is at most 1.6-3.3% of cell width, less
+  if the floor is not attainable (unknown: no exact minimum at these sizes).
+- Not measured: the model on these probes; stacks of 6-8 are far outside training and unrealistic for cells,
+  and only the 4-stage set stays at stack <= 4.
