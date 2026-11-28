@@ -5,8 +5,19 @@ the machine it was written on. Full results and reasoning: [`llm_runs.md`](llm_r
 six sections first). The project plan and open-item list live in the private notebook doc on claude.ai,
 not in this repo.
 
-## Where the work stands (updated 2026-11-27, 01:30, end of the fourth local 3090 session)
+## Where the work stands (updated 2026-11-28, 03:00, fifth local 3090 session)
 
+- **Scale path (2026-11-27/28, `llm_runs.md` last three sections).** A search-free randomised greedy placer
+  (`cellgym/llm/classical.py`) matches or beats the release model on columns on every set and keeps working to
+  64 per side (within 1.6-3.3% of the column floor). `step05big` (run22: step05v3s_e2 + 1 epoch with 8,000
+  cells at 10-32 per side and 3-4 stages, labelled by that placer, `cellgym/llm/bigcorpus.py`) equals the
+  placer's best of 1,000 with 32 samples at 14-24 per side (66 of 70 cells), is level with it at equal sample
+  count there, and is behind from 32 per side up; it is ahead on 1 of 110 cells and far slower. It is not a
+  release candidate: standard test sets, routing and area were not run on it. Open choices, none started:
+  (a) labels better than the heuristic (the model's own best samples or a search seeded by them, then retrain);
+  (b) use the model inside the heuristic (as the tie-break) instead of against it; (c) stop the scale path and
+  release step05v3s_e2 with the classical placer stated as the stronger column method. Keep CPU jobs at 8 and
+  cap GPU memory in training (run22 filled the card; the user wants headroom).
 - **Release candidate: `step05v3s_e2`** (state v3, 2 epochs; second seed `step05v3s_e2_s2`). It replaces
   step05v2s: level at best-of-32, better at best-of-8 on the far sets, stage probes with selection measured
   (0.995 / 1.014 on 2 / 3 stages). Both seeds agree to 0.006 at best-of-32 on every set with 75 cells or more.

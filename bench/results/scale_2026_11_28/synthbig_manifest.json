@@ -1,0 +1,92 @@
+{
+ "args": "--out out/synthbig --single 5000 --per-side 10:32 --multi 3:1500 4:1500 --tries 1000 --placements 2 --exclude out/probe/i8d14 out/probe/i10d16 out/probe/i12d20 out/probe/i16d24 out/probe/stage2 out/probe/stage3 out/probe2/i16d32 out/probe2/i20d48 out/probe2/i24d64 out/probe2/stage4 out/ood6 out/ood7 out/ood8 out/ood9 out/ood10 out/oodstack5 out/oodstack6 out/ooddev10 out/ooddev11 out/ooddev12 out/adder --jobs 8",
+ "records": 15787,
+ "cells": 8000,
+ "by_origin": {
+  "big1": 5000,
+  "big3": 1500,
+  "big4": 1500
+ },
+ "excluded_dirs": [
+  "out/probe/i8d14",
+  "out/probe/i10d16",
+  "out/probe/i12d20",
+  "out/probe/i16d24",
+  "out/probe/stage2",
+  "out/probe/stage3",
+  "out/probe2/i16d32",
+  "out/probe2/i20d48",
+  "out/probe2/i24d64",
+  "out/probe2/stage4",
+  "out/ood6",
+  "out/ood7",
+  "out/ood8",
+  "out/ood9",
+  "out/ood10",
+  "out/oodstack5",
+  "out/oodstack6",
+  "out/ooddev10",
+  "out/ooddev11",
+  "out/ooddev12",
+  "out/adder"
+ ],
+ "axes_min_max": {
+  "inputs": [
+   3,
+   16
+  ],
+  "per_side": [
+   10,
+   32
+  ],
+  "stack": [
+   2,
+   6
+  ],
+  "stages": [
+   1,
+   4
+  ],
+  "outputs": [
+   1,
+   2
+  ]
+ },
+ "by_per_side": {
+  "10": 195,
+  "11": 180,
+  "12": 802,
+  "13": 601,
+  "14": 441,
+  "15": 377,
+  "16": 855,
+  "17": 611,
+  "18": 502,
+  "19": 376,
+  "20": 295,
+  "21": 247,
+  "22": 251,
+  "23": 230,
+  "24": 227,
+  "25": 214,
+  "26": 239,
+  "27": 220,
+  "28": 214,
+  "29": 239,
+  "30": 215,
+  "31": 228,
+  "32": 241
+ },
+ "by_stack": {
+  "2": 7,
+  "3": 2266,
+  "4": 2154,
+  "5": 1977,
+  "6": 1596
+ },
+ "label": "classical.Greedy smart, best of 1000, up to 2 placements",
+ "mean_breaks": 1.449,
+ "mean_breaks_over_bound": 0.852,
+ "cells_at_bound": 2875,
+ "seconds": 3939.9
+}

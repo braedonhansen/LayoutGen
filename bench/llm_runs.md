@@ -1317,3 +1317,76 @@ sets did not build within 15 min each). `python -m cellgym.llm.classical none --
   if the floor is not attainable (unknown: no exact minimum at these sizes).
 - Not measured: the model on these probes; stacks of 6-8 are far outside training and unrealistic for cells,
   and only the 4-stage set stays at stack <= 4.
+
+## Training past the Euler search on classical-placer labels (step05big, run22, 2026-11-27/28, `run22_2026_11_27.sh`)
+
+Question: does a model trained at the sizes where the Euler search stops beat the classical placer there at
+equal budget?
+
+- Corpus `out/synthbig` (`cellgym/llm/bigcorpus.py`, 66 min at 8 jobs): 8,000 cells, 15,787 placements.
+  5,000 single-stage cells at 10-32 devices per side (stack 4-6), 1,500 each of 3- and 4-stage cells (12-28
+  per side, 1-2 outputs). Labels are the classical placer's best of 1,000 tries (up to 2 placements per cell),
+  so they are heuristic, not minimal: mean 1.45 breaks, 0.85 above the floor, 2,875 cells at the floor.
+  Devices per side are not uniform: 195-855 cells per value up to 20, 214-251 per value from 21 to 32.
+  All probe and test-set cells excluded by id.
+- Model `out/llm/step05big`: continues `step05v3s_e2` for 1 epoch on synth5 + synth2s + synthbig (1,269,778
+  step examples, 3,834 steps, lr 5e-5, seed 1, state v3; 4 h 33 min, val loss 0.040 -> 0.031). The GPU was at
+  23.5 of 24 GB during training (shared with a 6.3 GB process that is not ours); cap this next time.
+- Trained on: <= 16 inputs, <= 32 per side, stack <= 6, 1-4 stages, 1-2 outputs.
+  Tested on: unseen cells at 14-24 per side (inside), at 32 per side with stack 6 and at 4 stages (at the
+  edge of training: 241 training cells at 32 per side), and at 48 / 64 per side with stack 7 / 8 (outside).
+  Mean diffusion breaks per cell; placements only, nothing routed.
+
+One placement (model greedy; classical one try, which varies between runs, both runs shown):
+
+| tested on | cells | step05big greedy | classical, one try |
+|---|---|---|---|
+| 8 inputs, 14 per side | 20 | 2.90 | 4.05 / 3.65 |
+| 10 inputs, 16 per side | 20 | 3.85 | 3.45 / 3.45 |
+| 12 inputs, 20 per side | 20 | 3.80 | 4.05 / 4.00 |
+| 16 inputs, 24 per side | 10 | 2.60 | 5.50 / 5.40 |
+| 4 stages, 20-21 per side | 10 | 6.00 | 6.40 / 6.60 |
+| 16 inputs, 32 per side, stack 6 | 10 | 13.10 | 9.40 / 9.50 |
+| 20 inputs, 48 per side, stack 7 | 10 | 21.90 | 14.80 / 17.80 |
+| 24 inputs, 64 per side, stack 8 | 8 of 10 finished | 47.75 | 22.25 (same 8 cells) |
+
+Best of N (model: fewest breaks among 32 samples at T = 0.7), and cells where the model has fewer / the same /
+more breaks than classical best of 1,000:
+
+| tested on | cells | step05v3s_e2 best of 32 | step05big best of 32 | classical best of 32 | classical best of 1,000 | step05big fewer / same / more |
+|---|---|---|---|---|---|---|
+| 8 inputs, 14 per side | 20 | 1.30 | 0.95 | 1.10 | 0.95 | 0 / 20 / 0 |
+| 10 inputs, 16 per side | 20 | 0.80 | 0.80 | 0.85 | 0.75 | 0 / 19 / 1 |
+| 12 inputs, 20 per side | 20 | 1.75 | 1.30 | 1.35 | 1.25 | 0 / 19 / 1 |
+| 16 inputs, 24 per side | 10 | 1.80 | 1.50 | 1.60 | 1.50 | 1 / 8 / 1 |
+| 4 stages, 20-21 per side | 10 | not run | 3.40 | 3.70 | 2.90 | 0 / 6 / 4 |
+| 16 inputs, 32 per side, stack 6 | 10 | not run | 4.00 | 3.10 | 1.90 | 0 / 0 / 10 |
+| 20 inputs, 48 per side, stack 7 | 10 | not run | 5.60 | 2.80 | 2.00 | 0 / 1 / 9 |
+| 24 inputs, 64 per side, stack 8 | 10 | not run | 15.40 | 8.60 | 4.20 | 0 / 0 / 10 |
+
+Columns over the floor's columns, step05big best of 32: 1.029 / 1.024 / 1.013 / 1.022 at 14-24 per side
+(step05v3s_e2: 1.041 / 1.024 / 1.024 / 1.028), 1.044 at 4 stages, 1.057 / 1.053 / 1.119 at 32 / 48 / 64 per
+side. Samples that hit the token cap: 1 of 320 at 32 and at 48 per side, 11 of 320 at 64 per side (2 of 10
+greedy); every other sample is a complete placement.
+
+- **Training at scale fixed the model at 14-24 per side.** With 32 samples it now equals the classical
+  placer's best of 1,000 on 66 of 70 cells (1 fewer, 3 more), where the release model was behind on 18.
+  At equal sample count (32) it is 0.05-0.15 breaks ahead of the classical placer on all four sets and 0.3
+  ahead at 4 stages; the classical placer's own run-to-run difference at 32 tries is 0.0-0.2 on these sets,
+  so this is level, not a win.
+- **It does not beat the heuristic anywhere.** It has fewer breaks than classical best of 1,000 on 1 of 110
+  cells. From 32 per side up it is behind at every budget: 0.9 breaks at 32 per side, 2.8 at 48, 6.8 at 64
+  (best of 32 against best of 32), and one sample has 1.2-2.1 times the breaks of one classical try. 32 per
+  side is inside the training range on paper but thinly covered (241 cells, and stack 6 with 16 inputs).
+- **Cost is not close.** 32 model samples for the 110 cells took 57 min on the GPU; 1,000 classical tries take
+  1-4 s per cell up to 24 per side and 11 / 36 / 132 s at 32 / 48 / 64 per side on one CPU core.
+- Reading: the model learned to imitate the heuristic about as well as the heuristic performs, inside the
+  sizes it saw densely, and it does not extrapolate in size (same as the release model, one size class up).
+  Imitating best-of-1,000 labels cannot be expected to pass best of 1,000; passing it needs labels better
+  than the heuristic (the model's own best samples, or a search seeded by them) or a search-time use of the
+  model. Not done.
+- Not measured: step05big on the standard test sets (regression against step05v3s_e2 unknown; it is not a
+  release candidate); routing, area and pass rate of any of these placements; a second seed; training from the
+  base model instead of continuing; the classical placer is not reproducible run to run (its tie-breaking
+  follows hash order), which is why two one-try columns are shown; cells per set are 10-20.
+- Results: `bench/results/scale_2026_11_28/`.

@@ -1,0 +1,144 @@
+{
+ "samples": "out/llm/scale/step05big/t0.jsonl",
+ "k": 1,
+ "rule": "smart",
+ "secs": 0,
+ "sets": {
+  "i8d14": {
+   "cells": 20,
+   "model": 2.9,
+   "classical": {
+    "1": 4.05,
+    "32": 1,
+    "1000": 0.95
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    5,
+    15
+   ],
+   "secs_for_max_tries": 1.19
+  },
+  "i10d16": {
+   "cells": 20,
+   "model": 3.85,
+   "classical": {
+    "1": 3.45,
+    "32": 0.9,
+    "1000": 0.75
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    5,
+    15
+   ],
+   "secs_for_max_tries": 1.499
+  },
+  "i12d20": {
+   "cells": 20,
+   "model": 3.8,
+   "classical": {
+    "1": 4.05,
+    "32": 1.45,
+    "1000": 1.25
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    8,
+    12
+   ],
+   "secs_for_max_tries": 2.327
+  },
+  "i16d24": {
+   "cells": 10,
+   "model": 2.6,
+   "classical": {
+    "1": 5.5,
+    "32": 1.6,
+    "1000": 1.5
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    4,
+    6
+   ],
+   "secs_for_max_tries": 2.987
+  },
+  "i16d32": {
+   "cells": 10,
+   "model": 13.1,
+   "classical": {
+    "1": 9.4,
+    "32": 3.7,
+    "1000": 2
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    0,
+    10
+   ],
+   "secs_for_max_tries": 11.319
+  },
+  "i20d48": {
+   "cells": 10,
+   "model": 21.9,
+   "classical": {
+    "1": 14.8,
+    "32": 3,
+    "1000": 2
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    0,
+    10
+   ],
+   "secs_for_max_tries": 36.213
+  },
+  "i24d64": {
+   "cells": 8,
+   "model": 47.75,
+   "classical": {
+    "1": 22.25,
+    "32": 7.75,
+    "1000": 3.75
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    0,
+    8
+   ],
+   "secs_for_max_tries": 129.047
+  },
+  "stage4": {
+   "cells": 10,
+   "model": 6,
+   "classical": {
+    "1": 6.4,
+    "32": 3.5,
+    "1000": 2.9
+   },
+   "classical_secs": null,
+   "tries_in_secs": null,
+   "model_fewer_same_more": [
+    0,
+    1,
+    9
+   ],
+   "secs_for_max_tries": 4.2
+  }
+ }
+}

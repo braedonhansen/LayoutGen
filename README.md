@@ -100,6 +100,12 @@ What this does not show:
   reaches the same or fewer columns on every set at equal sample count, far
   faster, and at 14 to 24 devices per side one of its tries is better than one
   model sample. No measured regime has the model ahead on columns.
+- Training further at those sizes does not change that. A follow-up model
+  (`step05big`, not the release model) trained on 8,000 cells of 10 to 32
+  devices per side labelled by that placer matches the placer's best of 1,000
+  tries with 32 samples at 14 to 24 per side (66 of 70 cells), is behind it from
+  32 per side up, and is ahead on 1 of 110 cells. Its routing and area were
+  not measured.
 - A single greedy placement is 2 to 20% larger than the baseline (3 to 5% on
   the 6-to-10-input sets); the result above needs 32 samples (about 10 s per
   cell on an RTX 3090 at 14 to 24 devices per side).

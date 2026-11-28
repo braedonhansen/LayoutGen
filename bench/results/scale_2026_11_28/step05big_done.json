@@ -1,0 +1,19 @@
+{
+ "steps": 3834,
+ "seconds": 16354.4,
+ "args": {
+  "model": "out/llm/step05v3s_e2/model",
+  "data": "out/llm/data_big/step_train.jsonl",
+  "val": "out/llm/data_big/step_val.jsonl",
+  "out": "out/llm/step05big",
+  "epochs": 1.0,
+  "lr": 5e-05,
+  "warmup": 30,
+  "tokens_per_step": 65536,
+  "micro_tokens": 4096,
+  "max_len": 3072,
+  "seed": 1,
+  "grad_ckpt": false,
+  "scratch": null
+ }
+}
