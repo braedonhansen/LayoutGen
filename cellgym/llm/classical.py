@@ -52,18 +52,24 @@ class Greedy:
     def _moves(self, st):
         return [x for ss in self.s._cont(*st).values() for x in ss]
 
-    def one(self, rng: random.Random) -> int:
-        """Breaks of one randomised greedy placement."""
+    def one(self, rng: random.Random, path: list | None = None) -> int:
+        """Breaks of one randomised greedy placement; with `path`, its columns are appended to it."""
         s, smart = self.s, self.rule == "smart"
         mn = mp = 0
         st, br = None, -1
+
+        def go(prev, nxt):
+            if path is not None:
+                path.append(("g", next(g for g, ss in s._cont(*prev).items() if nxt in ss)))
+                path.append(("sd", nxt[2], nxt[3]))
+            return nxt
         while (mn, mp) != s.full:
             mv = self._moves(st) if st else []
             if mv:
                 if smart and len(mv) > 1:
                     good = [x for x in mv if (x[0], x[1]) == s.full or self._moves(x)]
                     mv = good or mv
-                st = rng.choice(mv)
+                st = go(st, rng.choice(mv))
             else:
                 br += 1
                 starts = [(mn, mp, a, b) for a in s.terms("n", mn) for b in s.terms("p", mp)]
@@ -74,13 +80,15 @@ class Greedy:
                         top = max((x[2] in on) + (x[3] in op) for x in live)
                         starts = [x for x in live if (x[2] in on) + (x[3] in op) == top]
                 st = rng.choice(starts)
+                if path is not None:
+                    path.append(("sd", st[2], st[3]))
                 nx = self._moves(st)
                 if not nx:      # a column no gate can follow: the next loop turn breaks again
                     continue
                 if smart and len(nx) > 1:
                     good = [x for x in nx if (x[0], x[1]) == s.full or self._moves(x)]
                     nx = good or nx
-                st = rng.choice(nx)
+                st = go(st, rng.choice(nx))
             mn, mp = st[0], st[1]
         return max(br, 0)
 
